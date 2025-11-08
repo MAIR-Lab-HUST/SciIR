@@ -122,7 +122,7 @@ def process_single_file(filename, input_folder, output_folder, target_size=1024)
 
 # ===== 批量多线程处理 =====
 if __name__ == "__main__":
-    input_folder = "./scir_dataset/filtered_images"
+    input_folder = "./scir_dataset/cropped_images"
     output_folder = "./scir_dataset/filled_images"
     target_size = 1024
     max_workers = os.cpu_count()

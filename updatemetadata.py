@@ -33,10 +33,20 @@ def parse_image_id(filename):
     return None
 
 image_groups = defaultdict(list)
+unparsed_files = []
 for fname in existing_files:
     image_id = parse_image_id(fname)
     if image_id:
         image_groups[image_id].append(fname)
+    else:
+        unparsed_files.append(fname)
+
+if unparsed_files:
+    print(f"⚠️ 警告: {len(unparsed_files)} 个文件名格式不符合预期，将被忽略:")
+    for fname in unparsed_files[:5]:  # 只显示前5个
+        print(f"   - {fname}")
+    if len(unparsed_files) > 5:
+        print(f"   ... 还有 {len(unparsed_files) - 5} 个")
 
 # ===== 辅助函数：安全获取图片尺寸 =====
 def get_image_size(image_path):
@@ -62,6 +72,9 @@ for metadata in metadata_list:
 
             img_path = os.path.join(filtered_dir, fname)
             width, height = get_image_size(img_path)
+            
+            if width is None or height is None:
+                print(f"⚠️ 警告: 无法读取图片尺寸: {fname}")
 
             relative_path = os.path.join("scir_dataset", "filtered_images", fname)
             new_segments.append({

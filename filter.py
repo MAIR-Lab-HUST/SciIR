@@ -30,7 +30,7 @@ system_prompt = """
 请严格按照定义判断，不做额外解释或描述
 """
 
-input_dir = "./scir_dataset/filtered_images"
+input_dir = "./scir_dataset/d_images"
 filtered_dir = "./scir_dataset/filtered2_images"
 metadata_path = "./scir_dataset/metadata.json"
 os.makedirs(filtered_dir, exist_ok=True)
