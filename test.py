@@ -38,12 +38,17 @@ ARTICLE_LIST_URL_TEMPLATE = (
     "https://www.nature.com/nature/articles?searchType=journalSearch&sort=PubDate&type=article&page={page}"
 )
 START_PAGE = 1  # 设置检索页面起始页（当没有进度文件时使用此值）
-TARGET_IMAGE_COUNT = 20000
+TARGET_IMAGE_COUNT = 20000  # 每次运行的目标图片数量
 MAX_FIGURES_PER_ARTICLE = 100
 MAX_ARTICLE_PAGES = 200
 REQUEST_DELAY = 0.8
 SUBIMAGE_DIR_NAME = "subimages"
 OVERLAP_SUPPRESSION = 0.2
+
+# 注意：
+# 1. 每次运行都会生成新的批次数据（metadata.json和images文件夹内容会被覆盖）
+# 2. progress.json保存爬取进度（包括last_page和已处理的文章URL列表）
+# 3. 每次运行会从上次的last_page继续，并跳过已处理过的文章URL
 
 # 多线程配置
 MAX_ARTICLE_WORKERS = 12  # 并行处理文章的线程数
@@ -1051,34 +1056,45 @@ def load_progress(output_dir: str) -> dict:
         try:
             with open(progress_file, 'r', encoding='utf-8') as f:
                 progress = json.load(f)
-            logging.info(f"成功加载进度文件: 上次爬到第 {progress.get('last_page', START_PAGE)} 页，"
-                        f"已处理 {len(progress.get('processed_article_urls', []))} 篇文章，"
-                        f"已采集 {progress.get('total_images', 0)} 张图片")
+            logging.info(f"成功加载进度文件: 将从第 {progress.get('last_page', START_PAGE)} 页继续，"
+                        f"累计已处理 {len(progress.get('processed_article_urls', []))} 篇文章")
+            if 'last_update_time' in progress:
+                logging.info(f"上次更新时间: {progress['last_update_time']}")
             return progress
         except Exception as e:
             logging.warning(f"加载进度文件失败: {e}，将从配置的起始页开始")
+    logging.info(f"未找到进度文件，将从第 {START_PAGE} 页开始新的爬取")
     return {
         'last_page': START_PAGE,
         'processed_article_urls': [],
-        'total_images': 0,
+        'last_batch_images': 0,
         'last_update_time': None
     }
 
 
-def save_progress(output_dir: str, current_page: int, processed_article_urls: set, total_images: int):
-    """保存当前爬取进度。"""
+def save_progress(output_dir: str, current_page: int, processed_article_urls: set, batch_images: int):
+    """
+    保存当前爬取进度。
+    
+    Args:
+        output_dir: 输出目录
+        current_page: 当前爬取到的页码
+        processed_article_urls: 累计已处理的文章URL集合
+        batch_images: 本次批次采集的图片数量
+    """
     progress_file = os.path.join(output_dir, "progress.json")
     progress = {
         'last_page': current_page,
         'processed_article_urls': list(processed_article_urls),
-        'total_images': total_images,
+        'last_batch_images': batch_images,
         'last_update_time': time.strftime('%Y-%m-%d %H:%M:%S')
     }
     try:
         with open(progress_file, 'w', encoding='utf-8') as f:
             json.dump(progress, f, ensure_ascii=False, indent=4)
-        logging.info(f"进度已保存: 当前第 {current_page} 页，已处理 {len(processed_article_urls)} 篇文章，"
-                    f"已采集 {total_images} 张图片")
+        logging.info(f"进度已保存: 下次从第 {current_page} 页继续，"
+                    f"累计已处理 {len(processed_article_urls)} 篇文章，"
+                    f"本次采集 {batch_images} 张图片")
     except Exception as e:
         logging.error(f"保存进度失败: {e}")
 
@@ -1459,8 +1475,6 @@ def process_figure(figure_task: tuple, images_dir: str, session: requests.Sessio
             image_counter -= 1
         return None
 
-    sub_captions = extract_sub_captions(fig_data.get("description_html", ""))
-
     metadata = {
         "image_id": image_id,
         "local_path": local_path,
@@ -1469,6 +1483,7 @@ def process_figure(figure_task: tuple, images_dir: str, session: requests.Sessio
         "article_body": article_text_data["body"],
         "source_citation": article_text_data.get("source_citation", ""),
         "figure_title": fig_data["title"],
+        "figure_caption": fig_data.get("description", ""),
         "figure_index": fig_data["figure_index"],
         "image_url": fig_data["image_url"],
         "source_article_url": fig_data["source_article_url"],
@@ -1476,13 +1491,6 @@ def process_figure(figure_task: tuple, images_dir: str, session: requests.Sessio
         "license": "CC BY 4.0",
         "license_url": "https://creativecommons.org/licenses/by/4.0/"
     }
-
-    if sub_captions:
-        metadata["has_subfigures"] = True
-        metadata["sub_captions"] = sub_captions
-    else:
-        metadata["has_subfigures"] = False
-        metadata["figure_caption"] = fig_data.get("description", "")
 
     add_image_metadata(metadata, local_path)
     add_subject_metadata(metadata, subjects)
@@ -1496,25 +1504,15 @@ def main():
     output_dir = "scir_dataset"
     images_dir = os.path.join(output_dir, "images")
     make_dirs(images_dir)
-    existing_images = [f for f in os.listdir(images_dir) if f.endswith('.png')] if os.path.exists(images_dir) else []
-    start_count = len(existing_images)
-    image_counter = start_count
-    logging.info(f"检测到已有 {start_count} 张图片，将继续采集至 {TARGET_IMAGE_COUNT} 张")
-    if start_count >= TARGET_IMAGE_COUNT:
-        logging.info("目标已达成，无需采集。")
-        return
-
-    metadata_path = os.path.join(output_dir, "metadata.json")
+    
+    # 每次从0开始,只保存本次爬取的内容
+    image_counter = 0
     all_metadata = []
-    if os.path.exists(metadata_path):
-        try:
-            with open(metadata_path, 'r', encoding='utf-8') as f:
-                all_metadata = json.load(f)
-            logging.info(f"成功加载 {len(all_metadata)} 条现有元数据记录")
-        except Exception as e:
-            logging.warning(f"加载元数据失败: {e}，将创建新的元数据文件")
+    metadata_path = os.path.join(output_dir, "metadata.json")
+    
+    logging.info(f"开始新的爬取批次，目标采集 {TARGET_IMAGE_COUNT} 张图片")
 
-    # 加载爬取进度
+    # 加载爬取进度(获取last_page和已处理的文章URL列表)
     progress = load_progress(output_dir)
     
     try:
@@ -1524,23 +1522,19 @@ def main():
             session.mount('http://', adapter)
             session.mount('https://', adapter)
             
-            # 创建已处理文章URL的集合（优先从进度文件加载，其次从元数据提取）
+            # 从进度文件加载已处理的文章URL列表(避免重复爬取)
             processed_article_urls = set(progress.get('processed_article_urls', []))
-            if not processed_article_urls:
-                # 如果进度文件中没有，则从元数据中提取
-                for metadata in all_metadata:
-                    if 'source_article_url' in metadata:
-                        processed_article_urls.add(metadata['source_article_url'])
 
-            # 初始化动态抓取参数（从进度文件恢复，如果没有进度文件则使用配置的起始页）
+            # 初始化动态抓取参数（从进度文件恢复起始页，如果没有进度文件则使用配置的起始页）
             start_page = progress.get('last_page', START_PAGE)
             page_increment = 5  # 每次增量抓取5页
-            total_collected_images = start_count
-            total_processed_articles = len(processed_article_urls)
-            cc_by_articles = 0  # 计数CC BY文章数量
+            total_collected_images = 0  # 本次批次从0开始
+            total_processed_articles = 0  # 本次批次处理的文章数
+            cc_by_articles = 0  # 本次批次的CC BY文章数量
 
             logging.info(f"开始动态抓取流程，目标: {TARGET_IMAGE_COUNT} 张图片")
-            logging.info(f"从第 {start_page} 页开始继续爬取")
+            logging.info(f"从第 {start_page} 页开始爬取")
+            logging.info(f"已记录 {len(processed_article_urls)} 篇历史文章(将跳过这些文章避免重复)")
 
             while total_collected_images < TARGET_IMAGE_COUNT:
                 logging.info(f"动态抓取阶段: 从页面 {start_page} 开始，抓取 {page_increment} 页")
@@ -1584,9 +1578,9 @@ def main():
                 logging.info(
                     f"阶段一完成。有效CC BY文章: {processed_articles}, 跳过: {skipped_articles}。共找到 {len(figure_tasks)} 个潜在图片。")
 
-                # 更新已处理文章集合
+                # 更新已处理文章集合(累积到历史记录中)
                 processed_article_urls.update(new_article_urls)
-                total_processed_articles += len(new_article_urls)
+                total_processed_articles += len(new_article_urls)  # 本次批次处理的文章数
 
                 # --- 阶段二: 并行下载图片 ---
                 if not figure_tasks:
@@ -1646,11 +1640,13 @@ def main():
             save_progress(output_dir, start_page, processed_article_urls, total_collected_images)
             
             # 最终日志
-            logging.info(f"\nSciIR数据集收集流程完成！")
-            logging.info(f"总计: {total_collected_images} 张图像")
-            logging.info(f"处理了 {total_processed_articles} 篇文章（其中 {cc_by_articles} 篇为CC BY协议）")
+            logging.info(f"\n本次爬取批次完成！")
+            logging.info(f"本次采集: {total_collected_images} 张图像")
+            logging.info(f"本次处理: {total_processed_articles} 篇新文章（其中 {cc_by_articles} 篇为CC BY协议）")
+            logging.info(f"累计已处理: {len(processed_article_urls)} 篇文章(包含历史)")
+            logging.info(f"下次将从第 {start_page} 页继续")
             if total_collected_images < TARGET_IMAGE_COUNT:
-                logging.warning(f"距离目标还差: {TARGET_IMAGE_COUNT - total_collected_images} 张")
+                logging.warning(f"距离本次目标还差: {TARGET_IMAGE_COUNT - total_collected_images} 张")
     
     except KeyboardInterrupt:
         # 用户中断时保存进度
