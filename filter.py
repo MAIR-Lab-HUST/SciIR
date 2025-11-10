@@ -3,8 +3,9 @@ import base64
 import shutil
 import json
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from openai import OpenAI
+from openai import OpenAI, APIError
 from collections import defaultdict
 
 # ✅ 初始化客户端
@@ -52,8 +53,8 @@ def parse_filename(filename):
     return None, None
 
 
-def process_image(filename):
-    """单张图片识别逻辑"""
+def process_image(filename, max_retries=5, base_delay=2):
+    """单张图片识别逻辑（带重试机制）"""
     img_path = os.path.join(input_dir, filename)
 
     # 使用完整文件名作为缓存key
@@ -74,18 +75,35 @@ def process_image(filename):
         }
     ]
 
-    try:
-        response = client.chat.completions.create(
-            model="internvl3.5-latest",
-            messages=messages,
-            temperature=0
-        )
-        reply = response.choices[0].message.content.strip()
-        cache[filename] = reply
-        return filename, reply
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model="internvl3.5-latest",
+                messages=messages,
+                temperature=0
+            )
+            reply = response.choices[0].message.content.strip()
+            cache[filename] = reply
+            return filename, reply
 
-    except Exception as e:
-        return filename, f"❌ Error: {e}"
+        except APIError as e:
+            # 检查是否是速率限制错误
+            if "请求过于频繁" in str(e) or e.status_code == 429:
+                wait_time = base_delay * (2 ** attempt)
+                print(f"⚠️ 速率限制错误 (重试 {attempt + 1}/{max_retries}) - {filename}，等待 {wait_time} 秒...")
+                time.sleep(wait_time)
+                continue
+            else:
+                error_msg = f"API 错误: {e}"
+                print(f"❌ 处理失败 {filename}: {error_msg}")
+                return filename, error_msg
+
+        except Exception as e:
+            error_msg = f"❌ 未知错误: {e}"
+            print(f"❌ 处理失败 {filename}: {error_msg}")
+            return filename, error_msg
+
+    return filename, "❌ 达到最大重试次数"
 
 
 # ✅ 1. 首先加载metadata.json并创建segment信息映射
@@ -110,12 +128,12 @@ if os.path.exists(metadata_path):
 else:
     print("元数据文件不存在，将跳过metadata更新步骤")
 
-# ✅ 2. 并行执行图像筛选
+# ✅ 2. 并行执行图像筛选（降低并发数）
 all_results = []  # 存储所有结果 [(filename, reply), ...]
 valid_files = []  # 存储有效文件 [(original_id, filename, width, height), ...]
 
 print("\n🔍 开始处理图像...")
-with ThreadPoolExecutor(max_workers=50) as executor:
+with ThreadPoolExecutor(max_workers=90) as executor:  # 从50降到5
     # 提交所有任务
     tasks = {}
     for fname in os.listdir(input_dir):
@@ -182,7 +200,7 @@ if os.path.exists(metadata_path) and metadata_list:
         for new_idx, (old_filename, width, height) in enumerate(segments):
             new_filename = f"sciir_img_{original_id}_{new_idx:02d}.png"
             # ✅ 添加path字段，存储相对路径
-            relative_path = os.path.join("scir_dataset", "filtered_images", new_filename)
+            relative_path = os.path.join("scir_dataset", "filtered2_images", new_filename)
 
             new_segments.append({
                 "filename": new_filename,
