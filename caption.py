@@ -269,13 +269,8 @@ def main():
     print("正在转换输入数据...")
     for item in raw_data:
         # 确定图注内容
-        caption_text = ""
-        if item.get("has_subfigures") and "sub_captions" in item:
-            # 合并所有子图注
-            sub_captions_list = [f"{key}: {value}" for key, value in item["sub_captions"].items()]
-            caption_text = " ".join(sub_captions_list)
-        elif "figure_caption" in item:
-            caption_text = item["figure_caption"]
+        caption_text = item.get("figure_caption", "")
+        # ================================================
 
         # 为每个 segment 创建一个样本
         for segment in item.get("segments", []):
