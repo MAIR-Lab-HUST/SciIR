@@ -107,9 +107,6 @@ def generate_reasoning(data, image_abs_path):
    - EntityStructure（科学实体）
      提取：图片中的科学实体名称（名词化，不含动词）。
      可视化：每个实体的形态结构、颜色/材质/纹理、空间位置与尺度、数量等视觉特性。
-   - VisualizationStyle（渲染风格）
-     提取：图片渲染/制图风格术语（如示意图/显微图/热力图/轨迹叠加/三维渲染等）。
-     可视化：该风格在图中的具体呈现方式，以及如何服务科学表达（例：颜色映射、箭头/等值线/误差棒等）。
    - ScientificProcess（科学过程）
      提取：过程/阶段名称（如制备流程、实验步骤、时间序列阶段）。
      可视化：阶段序列、状态变化、因果或符号化元素（箭头、时间轴、循环）的视觉体现。
@@ -133,7 +130,6 @@ def generate_reasoning(data, image_abs_path):
   "reasoning": {{
     "ScientificConsistency": {{"terms": [], "visualization": []}},
     "EntityStructure": {{"terms": [], "visualization": []}},
-    "VisualizationStyle": {{"terms": [], "visualization": []}},
     "ScientificProcess": {{"terms": [], "visualization": []}}
   }}
 }}

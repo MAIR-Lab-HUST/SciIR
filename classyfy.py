@@ -22,8 +22,6 @@ ScientificConsistency
 判定图像是否涉及并呈现与学科规律与约束相关的要素（如价态/键连、尺度关系、能量/动量守恒的可视暗示）。注意：评分为该维度的相关度，而非正确度。
 EntityStructure
 判定图像是否涉及科学实体的结构与几何关系（如分子/晶格/细胞/星系/仪器组件的形态、连接、拓扑与相对尺度）。评分为相关度。
-VisualizationStyle
-评估图像是否具有鲜明或独特的艺术/渲染风格（显微/模拟/3D等）或者可读性与标注规范性较为突出。评分为相关度。
 ScientificProcess
 判定图像是否呈现过程性信息（时间演化、因果链、状态转变、反应机理）或存在明确过程线索（不同阶段标签、时间轴）。评分为相关度。
 
@@ -38,14 +36,13 @@ ScientificProcess
 
 证据与限制
 仅基于图像中可见且清晰的证据作答；不臆测不可见要素。
-维度名仅限：ScientificConsistency、EntityStructure、VisualizationStyle、ScientificProcess。
+维度名仅限：ScientificConsistency、EntityStructure、ScientificProcess。
 
 输出格式（严格按照以下方式输出 JSON）
 {
   "relevance": {
     "ScientificConsistency": { "score": 0 },
     "EntityStructure": { "score": 0 },
-    "VisualizationStyle": { "score": 0 },
     "ScientificProcess": { "score": 0 }
   }
 }
@@ -111,7 +108,6 @@ def get_default_result():
         "relevance": {
             "ScientificConsistency": {"score": 0},
             "EntityStructure": {"score": 0},
-            "VisualizationStyle": {"score": 0},
             "ScientificProcess": {"score": 0}
         },
         "confidence": 0
@@ -121,7 +117,7 @@ def get_default_result():
 def generate_labels(relevance_data):
     """根据评分规则生成标签（score >= 7）"""
     labels = []
-    for dim in ["ScientificConsistency", "EntityStructure", "VisualizationStyle", "ScientificProcess"]:
+    for dim in ["ScientificConsistency", "EntityStructure",  "ScientificProcess"]:
         dim_info = relevance_data.get(dim, {})
         # 安全检查：确保是字典且包含score
         if isinstance(dim_info, dict) and dim_info.get("score", 0) >= 7:
