@@ -4,9 +4,9 @@ from collections import defaultdict
 from PIL import Image  # ✅ 用于读取图片尺寸
 
 # ===== 路径设置 =====
-filtered_dir = "./scir_dataset/filtered_images"
-metadata_path = "./scir_dataset/metadata.json"
-updated_metadata_path = "./scir_dataset/metadata_updated.json"
+filtered_dir = "D:\\code\\sci\\ok\\filtered_images_1a"
+metadata_path = "D:\\code\\sci\\ok\\filter_metadata_1a.json"
+updated_metadata_path = "D:\\code\\sci\\ok\\updated_metadata_1a.json"
 
 # ===== 加载元数据 =====
 print("📂 正在加载 metadata.json ...")
