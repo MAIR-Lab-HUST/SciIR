@@ -6,6 +6,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
 from collections import defaultdict
 import time
+import threading
+import tempfile
+import traceback
 
 # ✅ 初始化客户端
 client = OpenAI(
@@ -49,15 +52,60 @@ ScientificProcess
 """
 
 # 路径配置
-filtered_dir = "./scir_dataset/filtered_images"
-metadata_path = "./scir_dataset/metadata_updated.json"
-output_metadata_path = "./scir_dataset/classified_metadata.json"
-cache_path = "classification_cache.json"
+filtered_dir = "D:\\code\\sci\\datasets\\filtered_images_2\\filtered_images_2"
+metadata_path = "D:\\code\\sci\\datasets\\filtered_images_2\\updated_metadata_2.json"
+output_metadata_path = "D:\\code\\sci\\ok\\classified_metadata_2.json"
+cache_path = ".\\classification_cache_2.json"
 
-# ✅ 加载分类缓存
+# 线程锁用于并发写缓存
+cache_lock = threading.Lock()
+
+# 原子保存 JSON（带重试）
+def _atomic_save_json(obj, path, lock=None, retries=5, base_delay=0.3):
+    dirn = os.path.dirname(path) or "."
+    if lock:
+        lock.acquire()
+    try:
+        for attempt in range(retries):
+            fd = None
+            tmp_path = None
+            try:
+                fd, tmp_path = tempfile.mkstemp(prefix=os.path.basename(path), dir=dirn, text=True)
+                with os.fdopen(fd, "w", encoding="utf-8") as tf:
+                    json.dump(obj, tf, ensure_ascii=False, indent=2)
+                    tf.flush()
+                    os.fsync(tf.fileno())
+                os.replace(tmp_path, path)
+                return
+            except PermissionError as e:
+                try:
+                    if tmp_path and os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+                except Exception:
+                    pass
+                if attempt < retries - 1:
+                    time.sleep(base_delay * (2 ** attempt))
+                    continue
+                raise
+            except Exception:
+                try:
+                    if tmp_path and os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+                except Exception:
+                    pass
+                raise
+    finally:
+        if lock:
+            lock.release()
+
+# ✅ 加载分类缓存（允许文件不存在）
 if os.path.exists(cache_path):
-    with open(cache_path, "r", encoding='utf-8') as f:
-        classification_cache = json.load(f)
+    try:
+        with open(cache_path, "r", encoding='utf-8') as f:
+            classification_cache = json.load(f)
+    except Exception as e:
+        print(f"⚠️ 无法读取缓存，启动空缓存: {e}")
+        classification_cache = {}
 else:
     classification_cache = {}
 
@@ -130,14 +178,13 @@ def classify_image(filename):
     """对单张图片进行多维度分类"""
     img_path = os.path.join(filtered_dir, filename)
 
-    if filename in classification_cache:
+    # 优先从缓存读取（缓存中存的是 relevance + confidence）
+    if filename in classification_cache and isinstance(classification_cache[filename], dict):
         print(f"📋 从缓存读取: {filename}")
         cached_result = classification_cache[filename]
-
-        # 从缓存中重建完整结果（包含动态生成的标签）
         result = {
             "relevance": cached_result["relevance"],
-            "confidence": cached_result["confidence"],
+            "confidence": cached_result.get("confidence", 0),
             "labels": generate_labels(cached_result["relevance"])
         }
         return filename, result
@@ -183,12 +230,26 @@ def classify_image(filename):
             labels = generate_labels(result["relevance"])
 
             # 保存到缓存（只存原始评分数据，不存标签）
-            classification_cache[filename] = {
+            to_cache = {
                 "relevance": result["relevance"],
-                "confidence": result["confidence"]
+                "confidence": result.get("confidence", 0)
             }
 
-            # 构建完整返回结果（仅用于内部处理，不写入元数据）
+            # 立即将成功结果写入磁盘缓存（原子保存，失败时不把错误写入缓存）
+            try:
+                # 更新内存缓存先（便于并发读取）
+                classification_cache[filename] = to_cache
+                _atomic_save_json(classification_cache, cache_path, lock=cache_lock, retries=5, base_delay=0.3)
+            except Exception as e:
+                # 如果写缓存失败，移除内存中的该条，保证下次重试
+                print(f"⚠️ 写缓存失败（{filename}），将在下次重试: {e}")
+                traceback.print_exc()
+                classification_cache.pop(filename, None)
+                # 仍返回结果给当前流程，但未缓存，后续重启会重试
+                full_result = {"relevance": to_cache["relevance"], "confidence": to_cache["confidence"], "labels": labels}
+                return filename, full_result
+
+            # 构建完整返回结果
             full_result = {
                 "relevance": result["relevance"],
                 "confidence": result["confidence"],
@@ -215,7 +276,7 @@ def main():
     # ✅ 1. 加载元数据
     print("\n📂 加载元数据文件...")
     try:
-        with open(metadata_path, "r", encoding='utf-8') as f:
+        with open(metadata_path, "r", encoding="utf-8") as f:
             metadata_list = json.load(f)
         print(f"✅ 成功加载 {len(metadata_list)} 条元数据记录")
     except Exception as e:
@@ -230,38 +291,49 @@ def main():
             if filename:
                 filename_to_metadata[filename] = (metadata, segment)
 
-    # ✅ 2. 获取所有需要分类的图像
+    # ✅ 2. 获取所有需要分类的图像（跳过已缓存的）
     print("\n📊 统计待分类图像...")
     image_files = []
     for fname in os.listdir(filtered_dir):
         if fname.startswith("sciir") and fname.endswith(".png"):
             image_files.append(fname)
 
-    print(f"✅ 找到 {len(image_files)} 张待分类图像")
+    total_images = len(image_files)
+    # 只对未缓存的文件提交分类任务（缓存中有的会被跳过）
+    to_process = [f for f in image_files if f not in classification_cache]
+    skipped = total_images - len(to_process)
+    print(f"✅ 找到 {total_images} 张待分类图像，已缓存 {skipped} 张，将处理 {len(to_process)} 张")
 
-    # ✅ 3. 并行执行分类任务
+    # ✅ 3. 并行执行分类任务（只提交未缓存的）
     print("\n🔍 开始多线程分类处理...")
     classification_results = {}
 
     with ThreadPoolExecutor(max_workers=10) as executor:
-        # 提交所有任务
+        # 提交未缓存任务
         future_to_filename = {
             executor.submit(classify_image, fname): fname
-            for fname in image_files
+            for fname in to_process
         }
 
-        # 处理完成的任务
+        # 处理完成的任务（同时把缓存中的也加入结果集合）
         completed = 0
         for future in as_completed(future_to_filename):
             filename, result = future.result()
             completed += 1
-
             if result:
                 classification_results[filename] = result
                 labels_str = ", ".join(result.get("labels", []))
-                print(f"[{completed}/{len(image_files)}] ✅ {filename} → {labels_str if labels_str else '无标签'}")
+                print(f"[{completed}/{len(to_process)}] ✅ {filename} → {labels_str if labels_str else '无标签'}")
             else:
-                print(f"[{completed}/{len(image_files)}] ❌ {filename} → 分类失败")
+                print(f"[{completed}/{len(to_process)}] ❌ {filename} → 分类失败")
+
+    # 把缓存中已有的也加入 classification_results（方便后面更新 metadata）
+    for fname, cached in classification_cache.items():
+        classification_results.setdefault(fname, {
+            "relevance": cached["relevance"],
+            "confidence": cached.get("confidence", 0),
+            "labels": generate_labels(cached["relevance"])
+        })
 
     # ✅ 4. 更新元数据，只添加labels字段（关键修改）
     print("\n📝 更新元数据中的labels字段...")
@@ -278,18 +350,17 @@ def main():
     # ✅ 5. 保存更新后的元数据
     print(f"\n💾 保存更新后的元数据...")
     try:
-        with open(output_metadata_path, "w", encoding='utf-8') as f:
+        with open(output_metadata_path, "w", encoding="utf-8") as f:
             json.dump(metadata_list, f, indent=2, ensure_ascii=False)
         print(f"✅ 成功更新 {update_count} 个segment的labels字段")
         print(f"✅ 更新后的元数据已保存至: {output_metadata_path}")
     except Exception as e:
         print(f"❌ 保存元数据失败: {e}")
 
-    # ✅ 6. 保存分类缓存
+    # ✅ 6. 保存分类缓存（再写一次以确保一致性）
     print("\n💾 保存分类缓存...")
     try:
-        with open(cache_path, "w", encoding='utf-8') as f:
-            json.dump(classification_cache, f, indent=2, ensure_ascii=False)
+        _atomic_save_json(classification_cache, cache_path, lock=cache_lock, retries=5, base_delay=0.3)
         print(f"✅ 分类缓存已保存至: {cache_path}")
     except Exception as e:
         print(f"⚠️ 保存缓存失败: {e}")
@@ -311,19 +382,19 @@ def main():
 
     print("\n各维度标签分布:")
     for label, count in sorted(label_counts.items(), key=lambda x: x[1], reverse=True):
-        percentage = (count / len(classification_results)) * 100
+        percentage = (count / max(1, len(classification_results))) * 100
         print(f"  {label}: {count} 张 ({percentage:.1f}%)")
 
     print("\n常见标签组合 (Top 10):")
     for combo, count in sorted(label_combinations.items(), key=lambda x: x[1], reverse=True)[:10]:
         combo_str = " + ".join(combo)
-        percentage = (count / len(classification_results)) * 100
+        percentage = (count / max(1, len(classification_results))) * 100
         print(f"  {combo_str}: {count} 张 ({percentage:.1f}%)")
 
     # 统计无标签图像
     no_label_count = sum(1 for r in classification_results.values() if not r.get("labels"))
     if no_label_count > 0:
-        print(f"\n⚠️ 无标签图像: {no_label_count} 张 ({(no_label_count / len(classification_results)) * 100:.1f}%)")
+        print(f"\n⚠️ 无标签图像: {no_label_count} 张 ({(no_label_count / max(1, len(classification_results))) * 100:.1f}%)")
 
     print("\n" + "=" * 60)
     print("🎉 分类任务完成!")
