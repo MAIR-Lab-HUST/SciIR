@@ -12,22 +12,22 @@ import threading  # ✅ 1. 导入 threading
 #        🚀 多 API KEY 加速版本
 # ======================================================
 API_KEYS = [
-    # "sk-lleqfnxceutjvaywjtruxsfrydpidbsxcpmjfinmwtbdzipf",
-    # "sk-hdbmdzhalqlzpsfgkjjxvohysihlzddfjgxwzronfxihbndo",
-    # "sk-pwaczhradjqycscbzvomfephetmlliriddmdjvxgjwnoxmfx",
-    # "sk-nhvkwjwwdzryadpxoyanovuuwkedndprviaaekbgpgdrgalq",
-    # ⬆️ 请在这里替换为你自己的 API Keys
+    "sk-izrxeahvbxtrpjvujgdqmrabzlhpcngbtwposuwoiugskhwj",
+    "sk-vlvawvmsujhyexstyfccwnodxcfgtgbzdirityejqnlyncat"
 ]
 
 # 创建多个客户端
 clients = [
-    OpenAI(api_key=k, base_url="https://api.siliconflow.cn/v1")  # ✅ 2. 使用 script 2 的 base_url
+    OpenAI(api_key=k, base_url="https://api.siliconflow.cn/v1")
     for k in API_KEYS
 ]
 
 client_index = 0
 client_lock = threading.Lock()
 
+# --- ADDED/CHANGED: 全局停止事件，当检测到欠费或其它致命错误时设置该事件，通知主线程终止 ---
+stop_event = threading.Event()
+# --------------------------------------------------------------------------------------------
 
 def get_client():
     """轮询分配 API KEY（线程安全）"""
@@ -37,45 +37,13 @@ def get_client():
         client_index = (client_index + 1) % len(clients)
     return client
 
+# ========== 保持原有的 classification_prompt 等不变 ==========
 
-# ======================================================
-#               原脚本配置 (保持不变)
-# ======================================================
-
-# 分类系统提示词
 classification_prompt = """
 角色与任务
 你是一个严谨的科学图像分类器。你的任务是围绕下述四个维度，对输入图像进行多标签、多维度的相关度评分（1–10）。
-评价维度与要点
-ScientificConsistency
-判定图像是否涉及或呈现与学科规律与约束相关的要素（如价态/键连、尺度关系、能量/动量守恒的可视暗示等）。注意：评分为该维度的相关度，而非正确度。
-EntityStructure
-判定图像是否涉及科学实体的结构或几何关系（如分子/晶格/细胞/星系/仪器组件的形态、连接、拓扑与相对尺度等）。评分为相关度。
-ScientificProcess
-判定图像是否呈现过程性信息（如时间演化、因果链、状态转变、反应机理等）或存在明确过程线索（如不同阶段标签、时间轴等）。评分为相关度。
-
-评分原则
-分数含义：1–10 表示该维度在图像中的"相关度"，非表达强度、非正确度、非质量分。
-评分锚点（相关度）：
-1–2：几乎不涉及
-3–4：有零星线索，但很弱
-5–6：中等相关，有一定证据
-7–8：强相关，证据充分
-9–10：主导性相关，是图像核心
-
-证据与限制
-仅基于图像中可见且清晰的证据作答；不臆测不可见要素。
-维度名仅限：ScientificConsistency、EntityStructure、ScientificProcess。
-
-输出格式（严格按照以下方式输出 JSON）
-{
-  "relevance": {
-    "ScientificConsistency": { "score": 0 },
-    "EntityStructure": { "score": 0 },
-    "ScientificProcess": { "score": 0 }
-  }
-}
-"""
+...
+"""  # 截略显示，实际保持原内容
 
 # 路径配置
 filtered_dir = "./scir_dataset/filtered_images_3"
@@ -90,48 +58,35 @@ if os.path.exists(cache_path):
 else:
     classification_cache = {}
 
+# ... 保留 parse_json_response, get_default_result, generate_labels 等函数不变 ...
 
 def parse_json_response(response_text):
     import json, re
-
-    # 去掉 markdown 包装
     response_text = response_text.strip()
     response_text = re.sub(r"^```(?:json)?", "", response_text)
     response_text = re.sub(r"```$", "", response_text)
     response_text = response_text.strip()
-
-    # 尝试直接解析
     try:
         data = json.loads(response_text)
-        # 如果是字典且包含 relevance，就返回
         if isinstance(data, dict) and "relevance" in data:
             return data
     except Exception:
         pass
-
-    # 如果直接解析失败，尝试提取最外层完整 JSON
-    # ✅ 改为贪婪匹配，取最大块
     matches = re.findall(r"\{[\s\S]*\}", response_text)
     if not matches:
         return get_default_result()
-
-    # 优先尝试最长的 JSON 片段
     matches.sort(key=len, reverse=True)
     for m in matches:
         try:
             data = json.loads(m)
             if "relevance" in data:
                 return data
-            # 兼容嵌套层，如 {"result": {"relevance": {...}}}
             for v in data.values():
                 if isinstance(v, dict) and "relevance" in v:
                     return v
         except Exception:
             continue
-
-    # 全部失败则返回默认
     return get_default_result()
-
 
 def get_default_result():
     return {
@@ -143,28 +98,28 @@ def get_default_result():
         "confidence": 0
     }
 
-
 def generate_labels(relevance_data):
-    """根据评分规则生成标签（score >= 7）"""
     labels = []
     for dim in ["ScientificConsistency", "EntityStructure", "ScientificProcess"]:
         dim_info = relevance_data.get(dim, {})
-        # 安全检查：确保是字典且包含score
         if isinstance(dim_info, dict) and dim_info.get("score", 0) >= 7:
             labels.append(dim)
     print("DEBUG relevance_data:", json.dumps(relevance_data, indent=2, ensure_ascii=False))
     return labels
 
-
+# ========== 这里是对 classify_image 的关键修改（detect 欠费即 stop） ==========
 def classify_image(filename):
     """对单张图片进行多维度分类"""
     img_path = os.path.join(filtered_dir, filename)
 
+    # 如果全局停止事件已触发，直接跳过并返回 None
+    if stop_event.is_set():
+        print(f"⛔ 全局停止已触发，跳过: {filename}")
+        return filename, None
+
     if filename in classification_cache:
         print(f"📋 从缓存读取: {filename}")
         cached_result = classification_cache[filename]
-
-        # 从缓存中重建完整结果（包含动态生成的标签）
         result = {
             "relevance": cached_result["relevance"],
             "confidence": cached_result["confidence"],
@@ -193,36 +148,37 @@ def classify_image(filename):
     max_retries = 5
     for attempt in range(max_retries):
 
-        client = get_client()  # ✅ 3. 轮询获取客户端
+        # 在每次尝试前检查全局停止信号
+        if stop_event.is_set():
+            print(f"⛔ 全局停止已触发，终止对 {filename} 的尝试")
+            return filename, None
+
+        client = get_client()
 
         try:
             response = client.chat.completions.create(
-                model="Qwen/Qwen3-VL-30B-A3B-Instruct",  # ✅ 3. 更改为 script 2 的模型
+                model="Qwen/Qwen3-VL-30B-A3B-Instruct",
                 messages=messages,
                 temperature=0,
-                timeout=30.0  # ✅ 3. 增加超时
+                timeout=30.0
             )
 
             reply = response.choices[0].message.content.strip()
             print(f"🔍 原始模型输出({filename}):\n{reply}")
             result = parse_json_response(reply)
 
-            # 确保结果包含必要字段
             if "relevance" not in result:
                 result["relevance"] = get_default_result()["relevance"]
             if "confidence" not in result:
                 result["confidence"] = 0
 
-            # 由代码生成标签（关键修改）
             labels = generate_labels(result["relevance"])
 
-            # 保存到缓存（只存原始评分数据，不存标签）
             classification_cache[filename] = {
                 "relevance": result["relevance"],
                 "confidence": result["confidence"]
             }
 
-            # 构建完整返回结果（仅用于内部处理，不写入元数据）
             full_result = {
                 "relevance": result["relevance"],
                 "confidence": result["confidence"],
@@ -233,32 +189,46 @@ def classify_image(filename):
             return filename, full_result
 
         except Exception as e:
-            # ✅ 3. 使用 script 2 的智能重试逻辑
-            print(f"⚠️ 尝试 {attempt + 1}/{max_retries} 失败: {filename} - {e}")
-            error_msg = str(e).lower()
+            # --- ADDED: 检测是否为欠费错误（code 30001 或 提示 'balance' / 'insufficient'） ---
+            error_msg = str(e)
+            print(f"⚠️ 尝试 {attempt + 1}/{max_retries} 失败: {filename} - {error_msg}")
 
-            if "rate limit" in error_msg or "quota" in error_msg:
+            # 尝试提取 code 字段
+            code_match = re.search(r"""['"]?code['"]?\s*[:=]\s*([0-9]+)""", error_msg)
+            detected_code = int(code_match.group(1)) if code_match else None
+
+            # 另外检测关键词 'insufficient' / 'balance'
+            low_balance_keywords = ["insufficient", "balance", "余额不足", "30001"]
+
+            if detected_code == 30001 or any(k in error_msg.lower() for k in low_balance_keywords):
+                # 识别为欠费或余额不足 -> 触发全局停止
+                print(f"❗ 检测到账号余额不足或错误码 30001（{detected_code}），触发全局停止。")
+                stop_event.set()
+                # 直接返回失败，主线程会检测到 stop_event 并取消其他任务
+                return filename, None
+
+            # 原有的重试/退避逻辑
+            if "rate limit" in error_msg.lower() or "quota" in error_msg.lower():
                 print(f"⏳ API限流... 稍后重试")
-                time.sleep(2 * (attempt + 1))  # 指数退避
-            elif "timeout" in error_msg:
+                time.sleep(2 * (attempt + 1))
+            elif "timeout" in error_msg.lower():
                 print(f"⏱️ 请求超时... 稍后重试")
                 time.sleep(3)
             else:
                 if attempt < max_retries - 1:
-                    time.sleep(2)  # 默认 sleep
+                    time.sleep(2)
 
-            if attempt == max_retries - 1:  # 检查是否为最后一次尝试
+            if attempt == max_retries - 1:
                 print(f"❌ 分类失败: {filename}")
                 return filename, None
-            # 循环将自动继续
-
+            # 循环继续重试（除非 stop_event 被触发）
+# ============================================================================
 
 def main():
     print("=" * 60)
     print("🚀 开始科学图像多维度分类任务 (使用 SiliconFlow 多API)")
     print("=" * 60)
 
-    # ✅ 1. 加载元数据
     print("\n📂 加载元数据文件...")
     try:
         with open(metadata_path, "r", encoding='utf-8') as f:
@@ -268,7 +238,6 @@ def main():
         print(f"❌ 无法加载元数据文件: {e}")
         return
 
-    # 创建文件名到metadata的映射
     filename_to_metadata = {}
     for metadata in metadata_list:
         for segment in metadata.get("segments", []):
@@ -276,7 +245,6 @@ def main():
             if filename:
                 filename_to_metadata[filename] = (metadata, segment)
 
-    # ✅ 2. 获取所有需要分类的图像
     print("\n📊 统计待分类图像...")
     image_files = []
     for fname in os.listdir(filtered_dir):
@@ -285,35 +253,54 @@ def main():
 
     print(f"✅ 找到 {len(image_files)} 张待分类图像")
 
-    # ✅ 3. 并行执行分类任务
     print("\n🔍 开始多线程分类处理...")
     classification_results = {}
 
-    # 注意：max_workers 建议与 API Key 数量匹配或稍多，以获得最佳轮询效果
     num_workers = 4
     print(f"ℹ️ 使用 {num_workers} 个工作线程 (API Key 数量: {len(API_KEYS)})")
 
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        # 提交所有任务
         future_to_filename = {
             executor.submit(classify_image, fname): fname
             for fname in image_files
         }
 
-        # 处理完成的任务
         completed = 0
-        for future in as_completed(future_to_filename):
-            filename, result = future.result()
-            completed += 1
+        try:
+            for future in as_completed(future_to_filename):
+                # 一旦检测到全局停止信号，尝试取消其余任务并跳出
+                if stop_event.is_set():
+                    print("❗ 全局停止信号已触发，正在取消剩余任务...")
+                    # 尝试取消还未完成的 future（注意：已提交任务可能无法被取消）
+                    for fut in future_to_filename:
+                        if not fut.done():
+                            fut.cancel()
+                    break
 
-            if result:
-                classification_results[filename] = result
-                labels_str = ", ".join(result.get("labels", []))
-                print(f"[{completed}/{len(image_files)}] ✅ {filename} → {labels_str if labels_str else '无标签'}")
-            else:
-                print(f"[{completed}/{len(image_files)}] ❌ {filename} → 分类失败")
+                filename, result = future.result()
+                completed += 1
 
-    # ✅ 4. 更新元数据，只添加labels字段（关键修改）
+                if result:
+                    classification_results[filename] = result
+                    labels_str = ", ".join(result.get("labels", []))
+                    print(f"[{completed}/{len(image_files)}] ✅ {filename} → {labels_str if labels_str else '无标签'}")
+                else:
+                    print(f"[{completed}/{len(image_files)}] ❌ {filename} → 分类失败")
+
+        except KeyboardInterrupt:
+            print("🛑 收到 KeyboardInterrupt，准备停止...")
+            stop_event.set()
+            # 尝试取消所有未完成的任务
+            for fut in future_to_filename:
+                if not fut.done():
+                    fut.cancel()
+
+    # 如果是因为 stop_event 导致中断，告知原因
+    if stop_event.is_set():
+        print("\n❗ 运行被中止（可能原因：账户余额不足或检测到致命错误）。")
+        # 这里可以选择是否保存当前缓存 / 元数据 —— 我们继续保存缓存与已完成的结果
+    # ========== 下面保持你原来的元数据更新、保存缓存与统计逻辑 ==========
+
     print("\n📝 更新元数据中的labels字段...")
     update_count = 0
 
@@ -321,11 +308,9 @@ def main():
         for segment in metadata.get("segments", []):
             filename = segment.get("filename")
             if filename in classification_results:
-                # 只添加labels字段，不添加任何relevance内容
                 segment["labels"] = classification_results[filename].get("labels", [])
                 update_count += 1
 
-    # ✅ 5. 保存更新后的元数据
     print(f"\n💾 保存更新后的元数据...")
     try:
         with open(output_metadata_path, "w", encoding='utf-8') as f:
@@ -335,7 +320,6 @@ def main():
     except Exception as e:
         print(f"❌ 保存元数据失败: {e}")
 
-    # ✅ 6. 保存分类缓存
     print("\n💾 保存分类缓存...")
     try:
         with open(cache_path, "w", encoding='utf-8') as f:
@@ -344,11 +328,10 @@ def main():
     except Exception as e:
         print(f"⚠️ 保存缓存失败: {e}")
 
-    # ✅ 7. 统计分析
+    # 统计输出（保持不变）
     print("\n📊 分类统计结果:")
     print("=" * 60)
 
-    # 统计各维度标签分布
     label_counts = defaultdict(int)
     label_combinations = defaultdict(int)
 
@@ -361,26 +344,24 @@ def main():
 
     print("\n各维度标签分布:")
     for label, count in sorted(label_counts.items(), key=lambda x: x[1], reverse=True):
-        percentage = (count / len(classification_results)) * 100
+        percentage = (count / len(classification_results)) * 100 if classification_results else 0
         print(f"  {label}: {count} 张 ({percentage:.1f}%)")
 
     print("\n常见标签组合 (Top 10):")
     for combo, count in sorted(label_combinations.items(), key=lambda x: x[1], reverse=True)[:10]:
         combo_str = " + ".join(combo)
-        percentage = (count / len(classification_results)) * 100
+        percentage = (count / len(classification_results)) * 100 if classification_results else 0
         print(f"  {combo_str}: {count} 张 ({percentage:.1f}%)")
 
-    # 统计无标签图像
     no_label_count = sum(1 for r in classification_results.values() if not r.get("labels"))
-    if no_label_count > 0:
+    if no_label_count > 0 and classification_results:
         print(f"\n⚠️ 无标签图像: {no_label_count} 张 ({(no_label_count / len(classification_results)) * 100:.1f}%)")
 
     print("\n" + "=" * 60)
-    print("🎉 分类任务完成!")
+    print("🎉 分类任务结束（或已被中止）!")
     print(f"✅ 成功分类: {len(classification_results)}/{len(image_files)} 张图像")
     print(f"✅ 输出文件: {output_metadata_path}")
     print("=" * 60)
-
 
 if __name__ == "__main__":
     main()
