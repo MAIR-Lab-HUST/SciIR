@@ -12,8 +12,10 @@ import threading  # ✅ 1. 导入 threading
 #        🚀 多 API KEY 加速版本
 # ======================================================
 API_KEYS = [
-    "sk-izrxeahvbxtrpjvujgdqmrabzlhpcngbtwposuwoiugskhwj",
-    "sk-vlvawvmsujhyexstyfccwnodxcfgtgbzdirityejqnlyncat"
+    "sk-pmxwgcwdstzgjqvhvxaulhbnqkajhmvgleoxmjvioadgqdcg",
+    "sk-bsrtizgzefklhyziwcoiifrrycdaagtrvupuyterfilcjkxw",
+    "sk-fcffshebwviqxokknuuibustebyutizlveyakakdbspjkdox",
+    "sk-gzpgdgjzbjvehsmvmkemydiyclhwjunmthevinrdyygejsiq"
 ]
 
 # 创建多个客户端
@@ -41,8 +43,36 @@ def get_client():
 
 classification_prompt = """
 角色与任务
-你是一个严谨的科学图像分类器。你的任务是围绕下述四个维度，对输入图像进行多标签、多维度的相关度评分（1–10）。
-...
+你是一名严谨的科学图像分类器。你的任务是围绕下述四个维度，对输入图像进行多标签、多维度的相关度评分（1–10）。
+评价维度与要点
+ScientificConsistency
+判定图像是否呈现或隐含学科规律与约束相关的要素（如价态/键连、尺度关系、能量/动量守恒的可视暗示）。注意：评分为该维度的相关度，而非正确度。
+EntityStructure
+判定图像是否涉及实体的结构与几何关系（如分子/晶格/细胞/星系/仪器组件的形态、连接和拓扑结构）。评分为相关度。
+ScientificProcess
+判定图像是否呈现过程性信息（如时间演化、因果链、状态转变、反应机理等）或存在明确过程线索（如不同阶段标签、时间轴）。评分为相关度。
+
+评分原则
+分数含义：1–10 表示该维度在图像中的"相关度"，非表达强度、非正确度、非质量分。
+评分锚点（相关度）：
+1–2：几乎不涉及
+3–4：有零星线索，但很弱
+5–6：中等相关，有一定证据
+7–8：强相关，证据非常充分
+9–10：主导性相关，是图像核心
+
+证据与限制
+仅基于图像中可见且清晰的证据作答；不臆测不可见要素。
+维度名仅限：ScientificConsistency、EntityStructure、ScientificProcess。
+
+输出格式（严格按照以下方式输出 JSON）
+{
+  "relevance": {
+    "ScientificConsistency": { "score": 0 },
+    "EntityStructure": { "score": 0 },
+    "ScientificProcess": { "score": 0 }
+  }
+}
 """  # 截略显示，实际保持原内容
 
 # 路径配置
@@ -102,7 +132,7 @@ def generate_labels(relevance_data):
     labels = []
     for dim in ["ScientificConsistency", "EntityStructure", "ScientificProcess"]:
         dim_info = relevance_data.get(dim, {})
-        if isinstance(dim_info, dict) and dim_info.get("score", 0) >= 7:
+        if isinstance(dim_info, dict) and dim_info.get("score", 0) >= 8:
             labels.append(dim)
     print("DEBUG relevance_data:", json.dumps(relevance_data, indent=2, ensure_ascii=False))
     return labels
