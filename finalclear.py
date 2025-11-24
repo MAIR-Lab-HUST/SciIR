@@ -5,9 +5,10 @@ import tempfile
 import time
 
 # 配置（按需修改）
-metadata_path = "D:\\code\\sci\\ok\\classified_metadata_1b.json"
-images_dir = "D:\\code\\sci\\ok\\filtered_images_1b"
-backup_path = "D:\\code\\sci\\ok\\classified_metadata_1b_final.json"
+# 修改为处理 classified_metadata_1a.json
+metadata_path = "D:\\code\\project\\classified_metadata_1a.json"
+images_dir = "D:\\code\\project\\scir_dataset\\filtered_images"
+backup_path = "D:\\code\\project\\classified_metadata_1a_old.json"
 
 def _atomic_save_json(obj, path, retries=5, base_delay=0.3):
     dirn = os.path.dirname(path) or "."
@@ -72,36 +73,65 @@ def main():
     total_segments = 0
     removed_segments = 0
     removed_files = 0
+    removed_entries = 0
 
+    new_metadata_list = []
     for entry in metadata_list:
-        segments = entry.get("segments", [])
-        total_segments += len(segments)
+        segs = entry.get("segments", [])
+        # 兼容 segments 为 dict 的情况
+        if isinstance(segs, dict):
+            segs = [segs]
+        if not isinstance(segs, list):
+            segs = list(segs) if segs else []
+
+        total_segments += len(segs)
         new_segments = []
-        for seg in segments:
+        for seg in segs:
             labels = seg.get("labels")
             filename = seg.get("filename")
+            path_in_seg = seg.get("path")
             if is_labels_empty(labels):
-                # 删除对应的图像文件（如果存在）
+                # 删除对应的图像文件（优先使用 filename 在 images_dir 中查找，
+                # 否则尝试使用 segment 中的 path）
+                img_paths_to_try = []
                 if filename:
-                    img_path = os.path.join(images_dir, filename)
+                    img_paths_to_try.append(os.path.join(images_dir, filename))
+                if path_in_seg:
+                    img_paths_to_try.append(path_in_seg)
+                # 也尝试 basename(path)
+                if path_in_seg:
+                    img_paths_to_try.append(os.path.join(images_dir, os.path.basename(path_in_seg)))
+                deleted_any = False
+                for img_path in img_paths_to_try:
                     try:
-                        if os.path.exists(img_path):
+                        if img_path and os.path.exists(img_path):
                             os.remove(img_path)
                             removed_files += 1
+                            deleted_any = True
                             print(f"删除图像: {img_path}")
-                        else:
-                            print(f"图像不存在，跳过删除: {img_path}")
+                            break
                     except Exception as e:
                         print(f"⚠️ 删除图像失败 ({img_path}): {e}")
+                if not deleted_any:
+                    # 无法找到要删除的文件，输出提示（但继续）
+                    if img_paths_to_try:
+                        print(f"图像未找到以删除，尝试路径：{img_paths_to_try}")
                 removed_segments += 1
                 # 不将该 segment 加入 new_segments（即删除）
             else:
                 new_segments.append(seg)
-        entry["segments"] = new_segments
 
-    # 原子性保存更新后的 metadata
+        # 如果该 entry 没有剩余 segments，则整个 entry 被删除
+        if len(new_segments) == 0:
+            removed_entries += 1
+            print(f"已删除条目（segments 为空）：image_id={entry.get('image_id')}")
+            continue
+        entry["segments"] = new_segments
+        new_metadata_list.append(entry)
+
+    # 原子性保存更新后的 metadata（覆盖原文件）
     try:
-        _atomic_save_json(metadata_list, metadata_path, retries=6, base_delay=0.3)
+        _atomic_save_json(new_metadata_list, metadata_path, retries=6, base_delay=0.3)
         print(f"✔ 已保存更新后的元数据: {metadata_path}")
     except Exception as e:
         print(f"❌ 保存更新后的元数据失败: {e}")
@@ -112,6 +142,7 @@ def main():
     print(f"原始 segment 总数: {total_segments}")
     print(f"已删除 segment 数: {removed_segments}")
     print(f"已删除对应图像数: {removed_files}")
+    print(f"已删除条目（segments 为空）数: {removed_entries}")
     print("操作完成。")
 
 if __name__ == "__main__":
