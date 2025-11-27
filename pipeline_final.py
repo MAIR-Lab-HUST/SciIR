@@ -26,7 +26,7 @@ API_A_MODEL = "qwen3-vl-plus"
 # API_B_KEY = "替换自己的key"
 # API_B_BASE = "https://chat.intern-ai.org.cn/api/v1/"
 # API_B_MODEL = "internvl3.5-latest"
-API_B_KEY = "sk-a147193dacc04b82ae52104baf737762"
+API_B_KEY = "替换自己的key"
 API_B_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 API_B_MODEL = "qwen3-vl-plus"
 
