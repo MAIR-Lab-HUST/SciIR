@@ -1,169 +1,336 @@
 import os
 import json
-import shutil
-import tempfile
+import re
 import time
+import random
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from openai import OpenAI
+from collections import defaultdict
 
-# 配置（按需修改）
-metadata_path = "./scir_dataset/classified_metadata6.json"
-images_dir = "./scir_dataset/filtered_images_6"
-backup_path = "./scir_dataset/classified_metadata6_old.json"
+# ======================================================
+#        🚀 配置区域
+# ======================================================
+
+INPUT_JSON_PATH = "./scir_dataset/updated_metadata_6.json"
+OUTPUT_JSON_PATH = "./scir_dataset/classified_abstracts.json"
+CACHE_PATH = "abstract_classification_cache.json"
+
+API_KEYS = [
+    "sk-pmxwgcwdstzgjqvhvxaulhbnqkajhmvgleoxmjvioadgqdcg",
+    "sk-bsrtizgzefklhyziwcoiifrrycdaagtrvupuyterfilcjkxw",
+    "sk-fcffshebwviqxokknuuibustebyutizlveyakakdbspjkdox",
+    "sk-gzpgdgjzbjvehsmvmkemydiyclhwjunmthevinrdyygejsiq"
+]
+
+MODEL_NAME = "Qwen/Qwen2.5-72B-Instruct"
+
+# ======================================================
+#        📚 学科映射字典 (核心修正逻辑)
+# ======================================================
+
+VALID_CATEGORIES = [
+    "Physical sciences",
+    "Earth and environmental sciences",
+    "Biological sciences",
+    "Health sciences",
+    "Scientific community and society"
+]
+
+SUB_TO_MAIN_MAP = {
+    # Physical sciences
+    "Physics": "Physical sciences", "Astronomy": "Physical sciences", "Planetary science": "Physical sciences",
+    "Chemistry": "Physical sciences", "Materials science": "Physical sciences", "Mathematics": "Physical sciences",
+    "Computing": "Physical sciences", "Engineering": "Physical sciences", "Nanoscience": "Physical sciences",
+    "Optics": "Physical sciences", "Photonics": "Physical sciences", "Energy science": "Physical sciences",
+
+    # Earth and environmental sciences
+    "Climate sciences": "Earth and environmental sciences", "Ecology": "Earth and environmental sciences",
+    "Environmental sciences": "Earth and environmental sciences",
+    "Solid Earth sciences": "Earth and environmental sciences",
+    "Geology": "Earth and environmental sciences", "Ocean sciences": "Earth and environmental sciences",
+    "Hydrology": "Earth and environmental sciences", "Natural hazards": "Earth and environmental sciences",
+    "Limnology": "Earth and environmental sciences", "Space physics": "Earth and environmental sciences",
+
+    # Biological sciences
+    "Genetics": "Biological sciences", "Microbiology": "Biological sciences", "Neuroscience": "Biological sciences",
+    "Immunology": "Biological sciences", "Evolution": "Biological sciences", "Cancer": "Biological sciences",
+    "Cell biology": "Biological sciences", "Biochemistry": "Biological sciences",
+    "Molecular biology": "Biological sciences",
+    "Zoology": "Biological sciences", "Developmental biology": "Biological sciences",
+    "Structural biology": "Biological sciences",
+    "Physiology": "Biological sciences", "Bioinformatics": "Biological sciences",
+    "Biotechnology": "Biological sciences",
+    "Plant sciences": "Biological sciences", "Psychology": "Biological sciences", "Biophysics": "Biological sciences",
+
+    # Health sciences
+    "Diseases": "Health sciences", "Health care": "Health sciences", "Medical research": "Health sciences",
+    "Anatomy": "Health sciences", "Pathogenesis": "Health sciences", "Biomarkers": "Health sciences",
+    "Neurology": "Health sciences", "Endocrinology": "Health sciences", "Medicine": "Health sciences",
+
+    # Scientific community and society
+    "Scientific community": "Scientific community and society", "Social sciences": "Scientific community and society",
+    "Business": "Scientific community and society", "Agriculture": "Scientific community and society",
+    "Water resources": "Scientific community and society", "Geography": "Scientific community and society",
+    "Forestry": "Scientific community and society"
+}
+
+# ======================================================
+#        🛠️ 核心逻辑
+# ======================================================
+
+clients = [
+    OpenAI(api_key=k, base_url="https://api.siliconflow.cn/v1")
+    for k in API_KEYS
+]
+client_index = 0
+client_lock = threading.Lock()
+stop_event = threading.Event()
 
 
-def _atomic_save_json(obj, path, retries=5, base_delay=0.3):
-    dirn = os.path.dirname(path) or "."
-    for attempt in range(retries):
-        fd = None
-        tmp_path = None
+def get_client():
+    global client_index
+    with client_lock:
+        client = clients[client_index]
+        client_index = (client_index + 1) % len(clients)
+    return client
+
+
+SYSTEM_PROMPT = """
+Role: Expert Scientific Taxonomist.
+Task: Classify the abstract into EXACTLY ONE of the 5 Major Categories.
+
+MAJOR CATEGORIES (Select ONE of these strictly):
+1. Physical sciences
+2. Earth and environmental sciences
+3. Biological sciences
+4. Health sciences
+5. Scientific community and society
+
+Instructions:
+- Analyze the abstract content based on standard scientific taxonomy.
+- Output strictly a JSON object: {"category": "Your Selected Category"}
+- ⛔ DO NOT output sub-disciplines (e.g., do NOT output "Chemistry" or "Genetics"). Output only the Major Category name.
+"""
+
+if os.path.exists(CACHE_PATH):
+    with open(CACHE_PATH, "r", encoding='utf-8') as f:
+        classification_cache = json.load(f)
+else:
+    classification_cache = {}
+
+
+def parse_json_response(response_text):
+    text = response_text.strip()
+    text = re.sub(r"^```(?:json)?", "", text)
+    text = re.sub(r"```$", "", text).strip()
+
+    result = None
+    try:
+        data = json.loads(text)
+        if "category" in data:
+            result = data["category"]
+    except json.JSONDecodeError:
+        match = re.search(r'"category":\s*"([^"]+)"', text)
+        if match:
+            result = match.group(1)
+
+    return result.strip() if result else None
+
+
+def classify_abstract_task(item_id, text_content):
+    if stop_event.is_set(): return item_id, None
+    if item_id in classification_cache: return item_id, classification_cache[item_id]
+
+    if not text_content or len(text_content) < 5:
+        return item_id, "Unknown"
+
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"Abstract: {text_content}"}
+    ]
+
+    max_retries = 5
+
+    for attempt in range(max_retries):
+        if stop_event.is_set(): return item_id, None
+
+        client = get_client()
+
         try:
-            fd, tmp_path = tempfile.mkstemp(prefix=os.path.basename(path), dir=dirn, text=True)
-            with os.fdopen(fd, "w", encoding="utf-8") as tf:
-                json.dump(obj, tf, ensure_ascii=False, indent=2)
-                tf.flush()
-                os.fsync(tf.fileno())
-            os.replace(tmp_path, path)
-            return
-        except PermissionError:
-            try:
-                if tmp_path and os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except Exception:
-                pass
-            if attempt < retries - 1:
-                time.sleep(base_delay * (2 ** attempt))
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages,
+                temperature=0.1,
+                timeout=30.0
+            )
+
+            reply = response.choices[0].message.content.strip()
+            category = parse_json_response(reply)
+
+            final_category = None
+
+            if category in VALID_CATEGORIES:
+                final_category = category
+            elif category in SUB_TO_MAIN_MAP:
+                final_category = SUB_TO_MAIN_MAP[category]
+                print(f"🔧 自动修正 {item_id}: {category} -> {final_category}")
+            elif category:
+                for vc in VALID_CATEGORIES:
+                    if vc.lower() == category.lower():
+                        final_category = vc
+                        break
+
+            if final_category:
+                classification_cache[item_id] = final_category
+                print(f"✅ {item_id} -> {final_category}")
+                return item_id, final_category
+            else:
+                print(f"⚠️ 识别无效 ({attempt + 1}/{max_retries}): {item_id} 返回了 '{category}' -> 正在重试...")
+                time.sleep(1)
                 continue
-            raise
-        except Exception:
-            try:
-                if tmp_path and os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except Exception:
-                pass
-            raise
+
+        except Exception as e:
+            error_msg = str(e)
+            low_balance_keywords = ["insufficient", "balance", "余额不足", "30001"]
+            if any(k in error_msg.lower() for k in low_balance_keywords):
+                print(f"❗ 余额不足，停止任务: {error_msg}")
+                stop_event.set()
+                return item_id, None
+
+            if "429" in error_msg or "rate limit" in error_msg.lower() or "tpm" in error_msg.lower():
+                wait_time = 5 + (attempt * 2) + random.uniform(1, 4)
+                print(f"⏳ TPM限流 ({item_id}): 等待 {wait_time:.1f}s... (Attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait_time)
+                continue
+
+            if attempt < max_retries - 1:
+                print(f"⚠️ API错误重试 {attempt + 1}/{max_retries}: {error_msg}")
+                time.sleep(2)
+            else:
+                print(f"❌ {item_id} 最终失败: {error_msg}")
+
+    return item_id, None
 
 
-def is_labels_empty(labels):
-    # 视为空的情况：None / 空字符串 / 空列表
-    if labels is None:
-        return True
-    if isinstance(labels, str) and not labels.strip():
-        return True
-    if isinstance(labels, (list, tuple)) and len(labels) == 0:
-        return True
-    return False
+# ======================================================
+#        ✨ 新增功能: 标签替换逻辑
+# ======================================================
+def process_label_replacement(data_list):
+    """
+    遍历 data_list 中的所有 item -> segments -> labels
+    如果有 "ScientificConsistency"，将其替换为 "ScientificLaw"。
+    """
+    print("\n🔄 开始执行标签替换 (ScientificConsistency -> ScientificLaw)...")
+    replacement_count = 0
+    segment_count = 0
+
+    for item in data_list:
+        segments = item.get("segments", [])
+        if not segments or not isinstance(segments, list):
+            continue
+
+        for seg in segments:
+            labels = seg.get("labels", [])
+            if not labels or not isinstance(labels, list):
+                continue
+
+            # 检查是否存在目标标签
+            if "ScientificConsistency" in labels:
+                # 使用列表推导式进行替换，保持其他标签不变
+                new_labels = [
+                    "ScientificLaw" if label == "ScientificConsistency" else label
+                    for label in labels
+                ]
+                seg["labels"] = new_labels
+                replacement_count += 1
+            segment_count += 1
+
+    print(f"✅ 标签替换完成: 检查了 {segment_count} 个 Segment，修正了 {replacement_count} 处标签。")
 
 
 def main():
-    if not os.path.exists(metadata_path):
-        print(f"❌ 找不到元数据文件: {metadata_path}")
-        return
-
-    # 备份原始文件
-    try:
-        shutil.copy2(metadata_path, backup_path)
-        print(f"✔ 已备份原始元数据到: {backup_path}")
-    except Exception as e:
-        print(f"⚠️ 无法备份元数据: {e}")
+    print("=" * 60)
+    print("🚀 科学论文摘要分类 + 标签修正工具")
+    print("=" * 60)
 
     try:
-        with open(metadata_path, "r", encoding="utf-8") as f:
-            metadata_list = json.load(f)
+        with open(INPUT_JSON_PATH, "r", encoding='utf-8') as f:
+            data_list = json.load(f)
+        print(f"📂 加载了 {len(data_list)} 条数据")
     except Exception as e:
-        print(f"❌ 无法读取元数据: {e}")
+        print(f"❌ 读取输入文件失败: {e}")
         return
 
-    total_segments = 0
-    removed_segments = 0
-    removed_files = 0
-    removed_entries = 0
-    replaced_labels_count = 0  # 新增：统计替换次数
+    # 1. 准备分类任务
+    tasks = []
+    for item in data_list:
+        img_id = item.get("image_id")
+        abstract = item.get("article_abstract", "")
+        if not abstract or len(abstract.strip()) < 10:
+            abstract = item.get("article_title", "")
+        tasks.append((img_id, abstract))
 
-    new_metadata_list = []
-    for entry in metadata_list:
-        segs = entry.get("segments", [])
-        # 兼容 segments 为 dict 的情况
-        if isinstance(segs, dict):
-            segs = [segs]
-        if not isinstance(segs, list):
-            segs = list(segs) if segs else []
+    results_map = {}
+    num_workers = 6
 
-        total_segments += len(segs)
-        new_segments = []
-        for seg in segs:
-            labels = seg.get("labels")
-            filename = seg.get("filename")
-            path_in_seg = seg.get("path")
+    print(f"🔥 启动 {num_workers} 个线程处理分类任务...")
 
-            # 1. 检查标签是否为空 (现有逻辑)
-            if is_labels_empty(labels):
-                # 删除对应的图像文件
-                img_paths_to_try = []
-                if filename:
-                    img_paths_to_try.append(os.path.join(images_dir, filename))
-                if path_in_seg:
-                    img_paths_to_try.append(path_in_seg)
-                if path_in_seg:
-                    img_paths_to_try.append(os.path.join(images_dir, os.path.basename(path_in_seg)))
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        future_to_id = {
+            executor.submit(classify_abstract_task, tid, content): tid
+            for tid, content in tasks
+        }
 
-                deleted_any = False
-                for img_path in img_paths_to_try:
-                    try:
-                        if img_path and os.path.exists(img_path):
-                            os.remove(img_path)
-                            removed_files += 1
-                            deleted_any = True
-                            print(f"删除图像: {img_path}")
-                            break
-                    except Exception as e:
-                        print(f"⚠️ 删除图像失败 ({img_path}): {e}")
+        completed = 0
+        try:
+            for future in as_completed(future_to_id):
+                if stop_event.is_set():
+                    print("🛑 全局停止触发...")
+                    break
 
-                removed_segments += 1
-                # 不将该 segment 加入 new_segments（即删除）
-            else:
-                # 2. 如果标签不为空，执行替换逻辑 (新功能)
-                # 检查 labels 是否为列表并包含目标字符串
-                if isinstance(labels, list):
-                    modified_labels = []
-                    has_replaced = False
-                    for lbl in labels:
-                        if lbl == "ScientificConsistency":
-                            modified_labels.append("ScientificLaw")
-                            has_replaced = True
-                            replaced_labels_count += 1
-                        else:
-                            modified_labels.append(lbl)
+                img_id, category = future.result()
+                completed += 1
+                if category:
+                    results_map[img_id] = category
 
-                    if has_replaced:
-                        seg["labels"] = modified_labels
-                        # print(f"替换标签: {entry.get('image_id')} -> {seg.get('filename')}") # 调试用
+                if completed % 20 == 0:
+                    print(f"进度: {completed}/{len(tasks)}")
 
-                new_segments.append(seg)
+        except KeyboardInterrupt:
+            stop_event.set()
+            print("\n🛑 用户强制停止")
 
-        # 如果该 entry 没有剩余 segments，则整个 entry 被删除
-        if len(new_segments) == 0:
-            removed_entries += 1
-            print(f"已删除条目（segments 为空）：image_id={entry.get('image_id')}")
-            continue
+    # 2. 更新分类结果到 data_list
+    print("\n📥 更新分类结果到内存...")
+    update_count = 0
+    for item in data_list:
+        img_id = item.get("image_id")
+        if img_id in results_map:
+            item["subject_category"] = results_map[img_id]
+            update_count += 1
+        elif img_id in classification_cache:
+            item["subject_category"] = classification_cache[img_id]
+            update_count += 1
+        else:
+            if "subject_category" not in item:
+                item["subject_category"] = None
 
-        entry["segments"] = new_segments
-        new_metadata_list.append(entry)
+    print(f"✅ 分类更新完毕，成功分类: {update_count}/{len(data_list)}")
 
-    # 原子性保存更新后的 metadata（覆盖原文件）
-    try:
-        _atomic_save_json(new_metadata_list, metadata_path, retries=6, base_delay=0.3)
-        print(f"✔ 已保存更新后的元数据: {metadata_path}")
-    except Exception as e:
-        print(f"❌ 保存更新后的元数据失败: {e}")
-        print(f"⚠️ 已保留备份文件: {backup_path}")
-        return
+    # 3. 执行标签替换 (新增功能)
+    process_label_replacement(data_list)
 
-    print("----- 总结 -----")
-    print(f"原始 segment 总数: {total_segments}")
-    print(f"已删除 segment 数: {removed_segments}")
-    print(f"已删除对应图像数: {removed_files}")
-    print(f"已删除条目（segments 为空）数: {removed_entries}")
-    print(f"已替换标签 (Consistency->Law) 次数: {replaced_labels_count}")
-    print("操作完成。")
+    # 4. 保存最终结果
+    print(f"\n💾 保存最终结果到 {OUTPUT_JSON_PATH} ...")
+    with open(OUTPUT_JSON_PATH, "w", encoding='utf-8') as f:
+        json.dump(data_list, f, indent=2, ensure_ascii=False)
+
+    # 保存缓存
+    with open(CACHE_PATH, "w", encoding='utf-8') as f:
+        json.dump(classification_cache, f, indent=2, ensure_ascii=False)
+
+    print("🎉 所有任务全部完成！")
 
 
 if __name__ == "__main__":
