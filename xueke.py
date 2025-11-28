@@ -12,8 +12,8 @@ from collections import defaultdict
 #        🚀 配置区域
 # ======================================================
 
-INPUT_JSON_PATH = "./scir_dataset/updated_metadata_6.json"
-OUTPUT_JSON_PATH = "./scir_dataset/classified_abstracts.json"
+INPUT_JSON_PATH = "./scir_dataset/updated_metadata_3.json"
+OUTPUT_JSON_PATH = "scir_dataset/classified_abstracts3.json"
 CACHE_PATH = "abstract_classification_cache.json"
 
 API_KEYS = [
@@ -108,9 +108,9 @@ MAJOR CATEGORIES (Select ONE of these strictly):
 5. Scientific community and society
 
 Instructions:
-- Analyze the abstract content based on standard scientific taxonomy.
+- Analyze the abstract and the provided subjects keywords.
 - Output strictly a JSON object: {"category": "Your Selected Category"}
-- ⛔ DO NOT output sub-disciplines (e.g., do NOT output "Chemistry" or "Genetics"). Output only the Major Category name.
+- ⛔ DO NOT output sub-disciplines. Output only the Major Category name.
 """
 
 if os.path.exists(CACHE_PATH):
@@ -138,16 +138,28 @@ def parse_json_response(response_text):
     return result.strip() if result else None
 
 
-def classify_abstract_task(item_id, text_content):
+def classify_abstract_task(item_id, text_content, subjects_info):
+    """
+    分类任务
+    :param item_id: 图片ID
+    :param text_content: 摘要文本
+    :param subjects_info: 科目列表字符串 (e.g., "Molecular biology, Neuroscience")
+    """
     if stop_event.is_set(): return item_id, None
     if item_id in classification_cache: return item_id, classification_cache[item_id]
 
-    if not text_content or len(text_content) < 5:
+    # 构建更丰富的 Prompt
+    user_content = f"Abstract: {text_content}"
+    if subjects_info:
+        user_content += f"\n\nRelated Subjects/Keywords: {subjects_info}"
+
+    # 如果两者都缺失，无法分类
+    if (not text_content or len(text_content) < 5) and (not subjects_info or len(subjects_info) < 3):
         return item_id, "Unknown"
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"Abstract: {text_content}"}
+        {"role": "user", "content": user_content}
     ]
 
     max_retries = 5
@@ -214,7 +226,7 @@ def classify_abstract_task(item_id, text_content):
 
 
 # ======================================================
-#        ✨ 新增功能: 标签替换逻辑
+#        ✨ 标签替换逻辑 (Consistency -> Law)
 # ======================================================
 def process_label_replacement(data_list):
     """
@@ -235,9 +247,7 @@ def process_label_replacement(data_list):
             if not labels or not isinstance(labels, list):
                 continue
 
-            # 检查是否存在目标标签
             if "ScientificConsistency" in labels:
-                # 使用列表推导式进行替换，保持其他标签不变
                 new_labels = [
                     "ScientificLaw" if label == "ScientificConsistency" else label
                     for label in labels
@@ -251,7 +261,7 @@ def process_label_replacement(data_list):
 
 def main():
     print("=" * 60)
-    print("🚀 科学论文摘要分类 + 标签修正工具")
+    print("🚀 科学论文摘要分类 + Subject增强 + 标签修正")
     print("=" * 60)
 
     try:
@@ -262,14 +272,23 @@ def main():
         print(f"❌ 读取输入文件失败: {e}")
         return
 
-    # 1. 准备分类任务
+    # 1. 准备分类任务，同时提取 subjects
     tasks = []
     for item in data_list:
         img_id = item.get("image_id")
         abstract = item.get("article_abstract", "")
+
+        # 提取 subjects 并转为字符串
+        subjects_list = item.get("subjects", [])
+        subjects_str = ""
+        if isinstance(subjects_list, list):
+            subjects_str = ", ".join([str(s) for s in subjects_list])
+
+        # 如果摘要为空，使用标题
         if not abstract or len(abstract.strip()) < 10:
             abstract = item.get("article_title", "")
-        tasks.append((img_id, abstract))
+
+        tasks.append((img_id, abstract, subjects_str))
 
     results_map = {}
     num_workers = 6
@@ -277,9 +296,10 @@ def main():
     print(f"🔥 启动 {num_workers} 个线程处理分类任务...")
 
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        # 注意这里传参增加了 subjects_str
         future_to_id = {
-            executor.submit(classify_abstract_task, tid, content): tid
-            for tid, content in tasks
+            executor.submit(classify_abstract_task, tid, content, subj): tid
+            for tid, content, subj in tasks
         }
 
         completed = 0
@@ -318,7 +338,7 @@ def main():
 
     print(f"✅ 分类更新完毕，成功分类: {update_count}/{len(data_list)}")
 
-    # 3. 执行标签替换 (新增功能)
+    # 3. 执行标签替换
     process_label_replacement(data_list)
 
     # 4. 保存最终结果
