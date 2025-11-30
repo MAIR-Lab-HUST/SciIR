@@ -32,16 +32,19 @@ CLASSIFIED_INPUT = "scir_dataset/classified_abstracts3.json"
 OUTPUT_PATH = "scir_dataset/caption3.json"
 CACHE_PATH = "scir_dataset/caption_cache3.json"
 
-# [修改 1] 新增图片文件夹路径配置
+# 图片文件夹路径配置
 IMAGE_DIR = "scir_dataset/filtered_images_3"
 
 # 并发配置
 MAX_WORKERS = 20
-MAX_RETRIES = 6
+MAX_NETWORK_RETRIES = 6  # 网络层面的重试 (Connection error, Timeout)
 RETRY_DELAY = 2
 
+# [修改] JSON 格式校验重试配置
+MAX_JSON_RETRIES = 3  # 如果 JSON 解析失败或字段缺失，重新生成的次数
+
 # 批量写入配置
-BATCH_SIZE = 100  # 每积攒多少条数据写入一次磁盘
+BATCH_SIZE = 100
 
 client_A = OpenAI(api_key=API_A_KEY, base_url=API_A_BASE)
 client_B = OpenAI(api_key=API_B_KEY, base_url=API_B_BASE)
@@ -61,7 +64,6 @@ class ResultManager:
             try:
                 with open(save_path, "r", encoding="utf-8") as f:
                     self.data = json.load(f)
-                    # 兼容性检查：确保结构正确
                     if "processed" not in self.data: self.data["processed"] = []
                     if "outputs" not in self.data: self.data["outputs"] = []
             except json.JSONDecodeError:
@@ -70,47 +72,34 @@ class ResultManager:
         else:
             self.data = {"processed": [], "outputs": []}
 
-        # 为了快速查找，维护一个 set
         self.processed_set = set(self.data["processed"])
 
     def is_processed(self, key):
         return key in self.processed_set
 
     def add_result(self, key, result_entry):
-        """线程安全地添加结果并自动触发批量保存"""
         with self.lock:
             self.data["processed"].append(key)
             self.data["outputs"].append(result_entry)
             self.processed_set.add(key)
             self.unsaved_count += 1
 
-            # 达到批量阈值，触发保存
             if self.unsaved_count >= self.batch_size:
                 self._save_to_disk_unsafe()
                 self.unsaved_count = 0
 
     def force_save(self):
-        """强制保存当前所有数据（用于程序退出或异常时）"""
         with self.lock:
-            if self.unsaved_count > 0:
-                print(f"\n[System] 正在强制保存剩余的 {self.unsaved_count} 条数据...")
+            if self.unsaved_count > 0 or not os.path.exists(self.save_path):
+                print(f"\n[System] 正在强制保存数据...")
                 self._save_to_disk_unsafe()
                 self.unsaved_count = 0
-            else:
-                # 即使没有新数据，如果文件不存在也要创建
-                if not os.path.exists(self.save_path):
-                    self._save_to_disk_unsafe()
 
     def _save_to_disk_unsafe(self):
-        """
-        内部保存方法，使用原子写入防止文件损坏。
-        调用前必须持有锁。
-        """
         temp_path = self.save_path + ".tmp"
         try:
             with open(temp_path, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, ensure_ascii=False, indent=2)
-            # 原子操作：替换原文件
             os.replace(temp_path, self.save_path)
         except Exception as e:
             print(f"[Error] 保存文件失败: {e}")
@@ -124,6 +113,9 @@ def encode_image(image_path):
 
 
 def call_model(client, model, system_prompt, user_prompt, temperature=0.1, top_p=1.0, image_base64=None):
+    """
+    基础模型调用，仅处理网络异常和 API 报错，不处理内容逻辑。
+    """
     messages = [{"role": "system", "content": system_prompt}]
     if image_base64:
         content = [
@@ -134,7 +126,7 @@ def call_model(client, model, system_prompt, user_prompt, temperature=0.1, top_p
     else:
         messages.append({"role": "user", "content": user_prompt})
 
-    for attempt in range(MAX_RETRIES):
+    for attempt in range(MAX_NETWORK_RETRIES):
         try:
             response = client.chat.completions.create(
                 model=model,
@@ -145,26 +137,69 @@ def call_model(client, model, system_prompt, user_prompt, temperature=0.1, top_p
             return response.choices[0].message.content
         except Exception as e:
             wait_time = RETRY_DELAY * (2 ** attempt)
-            if attempt < MAX_RETRIES - 1:
+            if attempt < MAX_NETWORK_RETRIES - 1:
                 time.sleep(wait_time)
             else:
-                print(f"[Error] API Failed: {e}")
+                print(f"[Error] API Network Failed: {e}")
 
     return ""
 
 
 def clean_json_output(text):
+    """
+    清洗并尝试解析 JSON 字符串
+    """
     if not text:
         return None
     text = text.strip()
+    # 移除 Markdown 代码块
     text = re.sub(r"^```json\s*|\s*```$", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
+    # 尝试提取最外层的 {}
     match = re.search(r'(\{.*\})', text, re.DOTALL)
     if match:
         text = match.group(1)
     try:
+        # 尝试修复常见的 JSON 尾部逗号错误 (简单的正则替换，不能覆盖所有情况)
+        text = re.sub(r",\s*([\]}])", r"\1", text)
         return json.loads(text)
     except json.JSONDecodeError:
         return None
+
+
+# ============ [新增] JSON 校验逻辑 ============
+
+def validate_reasoning_schema(data):
+    """验证 Step 1 Reasoning 的结构"""
+    if not isinstance(data, dict): return False
+    if "reasoning" not in data: return False
+
+    r = data["reasoning"]
+    if not isinstance(r, dict): return False
+
+    # 检查必要的子键
+    required_subkeys = ["ScientificLaw", "EntityStructure", "ScientificProcess"]
+    for k in required_subkeys:
+        if k not in r: return False
+        if not isinstance(r[k], dict): return False
+        if "terms" not in r[k] or "visualization" not in r[k]: return False
+
+    return True
+
+
+def validate_cot_schema(data):
+    """验证 Step 2 CoT 的结构"""
+    if not isinstance(data, dict): return False
+    if "sci_RCoT" not in data or not isinstance(data["sci_RCoT"], str): return False
+    if "rendered_text" not in data or not isinstance(data["rendered_text"], list): return False
+    return True
+
+
+def validate_prompt_schema(data):
+    """验证 Step 3 Prompt 的结构"""
+    if not isinstance(data, dict): return False
+    if "abstract_prompt" not in data or not isinstance(data["abstract_prompt"], str): return False
+    if "retained_text" not in data or not isinstance(data["retained_text"], list): return False
+    return True
 
 
 # ============ 核心 Prompt 与逻辑 ============
@@ -199,18 +234,35 @@ def generate_reasoning(data):
 }}"""
 
     image_base64 = encode_image(data["segments"]["path"])
-    user_prompt = f"""
-输入：
+    user_prompt = f"""输入：
 - text：{{"article_title": "{data['article_title']}", "article_abstract": "{data['article_abstract']}", "article_body": "{data['article_body']}", "figure_title": "{data['figure_title']}"}}
 - figure_caption：{{"figure_caption": "{data['figure_caption']}"}}
 - reasoning_ability：{data["segments"]["labels"]}
-- subject：{data["subjects"]}
-"""
-    result = call_model(client_A, API_A_MODEL, system_prompt, user_prompt, temperature=0.1, image_base64=image_base64)
-    reasoning_json = clean_json_output(result)
-    if reasoning_json is None:
-        reasoning_json = {"reasoning": {}}
-    return reasoning_json
+- subject：{data["subjects"]}"""
+
+    # [修改] 增加 JSON 重试循环
+    for attempt in range(MAX_JSON_RETRIES):
+        raw_result = call_model(client_A, API_A_MODEL, system_prompt, user_prompt, temperature=0.1,
+                                image_base64=image_base64)
+
+        json_data = clean_json_output(raw_result)
+
+        # 校验
+        if json_data and validate_reasoning_schema(json_data):
+            return json_data
+        else:
+            print(f"[Warn] Reasoning JSON invalid (Attempt {attempt + 1}/{MAX_JSON_RETRIES}). Retrying...")
+            # 可以在这里稍微增加 temperature 增加多样性，或者保持不变
+
+    # 如果重试多次均失败，返回空结构防止程序崩溃，并在日志中记录
+    print(f"[Error] Failed to generate valid Reasoning JSON for {data['segments'].get('filename')}")
+    return {
+        "reasoning": {
+            "ScientificLaw": {"terms": [], "visualization": []},
+            "EntityStructure": {"terms": [], "visualization": []},
+            "ScientificProcess": {"terms": [], "visualization": []}
+        }
+    }
 
 
 def generate_cot(reasoning_json, data):
@@ -236,18 +288,28 @@ def generate_cot(reasoning_json, data):
 }}
 sci-RCoT要完整覆盖reasoning 中各已选标签的 visualization 数组里每一条要点，不得遗漏、不得改写其含义，严禁新增任何reasoning、图注或图像中未出现的要素；语言风格要具象、连贯、可据文还原画面。
 """
+
     image_base64 = encode_image(data["segments"]["path"])
     user_prompt = f"""
 输入：
 - figure_caption：{{"figure_title": "{data['figure_title']}", "figure_caption": "{data['figure_caption']}"}}
 - reasoning：{json.dumps(reasoning_json, ensure_ascii=False)}
 """
-    result = call_model(client_A, API_A_MODEL, system_prompt, user_prompt, temperature=0.3, image_base64=image_base64)
-    result_json = clean_json_output(result)
 
-    if result_json is None:
-        return "", []
-    return result_json.get("sci_RCoT", ""), result_json.get("rendered_text", [])
+    # [修改] 增加 JSON 重试循环
+    for attempt in range(MAX_JSON_RETRIES):
+        raw_result = call_model(client_A, API_A_MODEL, system_prompt, user_prompt, temperature=0.3,
+                                image_base64=image_base64)
+
+        json_data = clean_json_output(raw_result)
+
+        if json_data and validate_cot_schema(json_data):
+            return json_data.get("sci_RCoT", ""), json_data.get("rendered_text", [])
+        else:
+            print(f"[Warn] CoT JSON invalid (Attempt {attempt + 1}/{MAX_JSON_RETRIES}). Retrying...")
+
+    print(f"[Error] Failed to generate valid CoT JSON for {data['segments'].get('filename')}")
+    return "", []
 
 
 def generate_prompt(reasoning_json, sci_rcot, rendered_text):
@@ -280,23 +342,25 @@ Note for "retained_text": This list must contains only strings for which explici
         "rendered_text_candidates": rendered_text
     }, ensure_ascii=False, indent=2)
 
-    result = call_model(client_B, API_B_MODEL, system_prompt, user_prompt, temperature=0.3, image_base64=None)
-    prompt_json = clean_json_output(result)
+    # [修改] 增加 JSON 重试循环
+    for attempt in range(MAX_JSON_RETRIES):
+        # 注意: prompt 生成阶段通常不需要图片输入，只需文本推理
+        raw_result = call_model(client_B, API_B_MODEL, system_prompt, user_prompt, temperature=0.3, image_base64=None)
 
-    if prompt_json is None:
-        return "", []
+        json_data = clean_json_output(raw_result)
 
-    final_prompt = prompt_json.get("abstract_prompt", "")
-    retained_text_list = prompt_json.get("retained_text", [])
-    return final_prompt, retained_text_list
+        if json_data and validate_prompt_schema(json_data):
+            return json_data.get("abstract_prompt", ""), json_data.get("retained_text", [])
+        else:
+            print(f"[Warn] Prompt JSON invalid (Attempt {attempt + 1}/{MAX_JSON_RETRIES}). Retrying...")
+
+    print(f"[Error] Failed to generate valid Abstract Prompt JSON")
+    return "", []
 
 
 # ============ 单个任务处理 ============
 
 def process_single_task(task_data, manager: ResultManager):
-    """
-    处理单个任务，并调用 manager 进行结果管理
-    """
     seg = task_data["segments"]
     key = seg.get("path") or seg.get("filename")
 
@@ -305,9 +369,23 @@ def process_single_task(task_data, manager: ResultManager):
 
     try:
         # === Pipeline ===
+
+        # 1. Reasoning (带校验)
         reasoning = generate_reasoning(task_data)
+
+        # 如果 Reasoning 是空的（重试失败），则没必要继续，跳过
+        if not reasoning.get("reasoning") or not any(reasoning["reasoning"].values()):
+            return f"Failed: {key} (Reasoning generation failed after retries)"
+
+        # 2. CoT (带校验)
         sci_rcot, rendered_text_list = generate_cot(reasoning, task_data)
+        if not sci_rcot:
+            return f"Failed: {key} (CoT generation failed after retries)"
+
+        # 3. Prompt (带校验)
         abstract_prompt, retained_text_list = generate_prompt(reasoning, sci_rcot, rendered_text_list)
+        if not abstract_prompt:
+            return f"Failed: {key} (Prompt generation failed after retries)"
 
         result_entry = {
             "image_path": seg["path"],
@@ -318,7 +396,6 @@ def process_single_task(task_data, manager: ResultManager):
             "retained_text_stage3": retained_text_list
         }
 
-        # === 写入缓存 ===
         manager.add_result(key, result_entry)
 
         return f"Success: {key}"
@@ -333,7 +410,6 @@ def process_single_task(task_data, manager: ResultManager):
 manager = ResultManager(CACHE_PATH, batch_size=BATCH_SIZE)
 
 
-# 注册信号处理，确保中断时保存
 def signal_handler(sig, frame):
     print("\n[System] 捕获中断信号，正在保存数据，请勿强制关闭...")
     manager.force_save()
@@ -346,6 +422,7 @@ atexit.register(manager.force_save)
 if __name__ == "__main__":
     print(f"初始化... 图片目录: {IMAGE_DIR}")
     print(f"缓存路径: {CACHE_PATH}, 批量写入大小: {BATCH_SIZE}")
+    print(f"JSON重试次数: {MAX_JSON_RETRIES}")
 
     classified_path = Path(CLASSIFIED_INPUT)
     if not classified_path.exists():
@@ -367,23 +444,16 @@ if __name__ == "__main__":
                 continue
 
         for seg in segs:
-            # [修改 2] 路径重组逻辑
-            # 1. 获取文件名 (优先使用 filename 字段，如果没有则从 path 中提取)
             filename = seg.get("filename")
             if not filename:
                 raw_path = seg.get("path")
                 if raw_path:
                     filename = os.path.basename(raw_path)
 
-            # 2. 如果成功获取文件名，则拼接新的 IMAGE_DIR
             if filename:
                 new_full_path = os.path.join(IMAGE_DIR, filename)
                 seg["path"] = new_full_path
-                seg["filename"] = filename  # 确保 filename 字段也正确
-            else:
-                # 如果完全无法获取文件名，跳过或保留原样(视具体需求，这里保留原样但会打印警告)
-                # print(f"[Warn] 无法解析文件名: {seg}")
-                pass
+                seg["filename"] = filename
 
             task = item.copy()
             task["segments"] = seg
@@ -393,7 +463,6 @@ if __name__ == "__main__":
     pending_tasks = []
     for idx, data in enumerate(tasks):
         seg = data["segments"]
-        # key 优先使用 path (现在是包含 filtered_images3 的完整路径)
         key = seg.get("path") or seg.get("filename") or str(idx)
         if not manager.is_processed(key):
             pending_tasks.append(data)
@@ -417,6 +486,7 @@ if __name__ == "__main__":
                 try:
                     msg = future.result()
                     if msg.startswith("Failed"):
+                        # 打印具体的失败信息，有助于调试
                         print(f"\n{msg}")
                 except Exception as exc:
                     print(f"\n[Fatal Error in Thread] {key}: {exc}")
