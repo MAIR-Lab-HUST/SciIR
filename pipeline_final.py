@@ -25,7 +25,7 @@ API_A_MODEL = "qwen3-vl-plus"
 
 API_B_KEY = "sk-a6e5442b7edf46e2a1d39351875309de"
 API_B_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-API_B_MODEL = "qwen3-vl-plus"
+API_B_MODEL = "qwen3-max"
 
 # 输入输出路径
 CLASSIFIED_INPUT = "scir_dataset/classified_abstracts3.json"
