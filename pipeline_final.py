@@ -208,8 +208,30 @@ def generate_reasoning(data):
 """
     result = call_model(client_A, API_A_MODEL, system_prompt, user_prompt, temperature=0.1, image_base64=image_base64)
     reasoning_json = clean_json_output(result)
+
+    # 防止 API 返回空或解析失败
     if reasoning_json is None:
         reasoning_json = {"reasoning": {}}
+
+    # ============ [新增] 数据清洗逻辑 ============
+    # 遍历 reasoning 下的所有 key，如果 terms 和 visualization 均为空，则置为 None (即 JSON null)
+    if "reasoning" in reasoning_json and isinstance(reasoning_json["reasoning"], dict):
+        r_data = reasoning_json["reasoning"]
+        # 需要检查的特定字段，或者直接遍历所有 key 也可以
+        target_keys = ["ScientificLaw", "EntityStructure", "ScientificProcess"]
+
+        for key in target_keys:
+            if key in r_data:
+                val = r_data[key]
+                # 检查值是否为字典，且 terms 和 visualization 是否为空列表或不存在
+                if isinstance(val, dict):
+                    is_terms_empty = not val.get("terms")  # 空列表 [] 或 None 均为 True
+                    is_viz_empty = not val.get("visualization")
+
+                    if is_terms_empty and is_viz_empty:
+                        r_data[key] = None
+    # ==========================================
+
     return reasoning_json
 
 
@@ -289,7 +311,6 @@ Note for "retained_text": This list must contains only strings for which explici
     final_prompt = prompt_json.get("abstract_prompt", "")
     retained_text_list = prompt_json.get("retained_text", [])
     return final_prompt, retained_text_list
-
 
 # ============ 单个任务处理 ============
 
