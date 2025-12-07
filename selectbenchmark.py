@@ -98,7 +98,7 @@ def filter_by_iqr(items, key_func):
     filtered = []
     for item in items:
         val = key_func(item)
-        if q1 <= val <= q3:
+        if q1-1 <= val <= q3+1:
             filtered.append(item)
     return filtered
 
@@ -112,6 +112,9 @@ def main():
         print("Data load failed. Exiting.")
         return
 
+    # 用于记录找不到的图片
+    missing_images = set()
+    
     # 构建 Caption 索引
     caption_map = {normalize_path(item['image_path']): item for item in captions_data}
 
@@ -262,20 +265,64 @@ def main():
             img_dir = os.path.join(base_dir, "images")
             os.makedirs(img_dir, exist_ok=True)
 
-            # 保存 JSON
-            save_json(ds, os.path.join(base_dir, f"{sub_name}_data.json"))
-
-            # 复制图片
+            # 检查图片是否存在，过滤掉找不到图片的记录
+            filtered_ds = []
             for item in ds:
                 img_filename = item['image_filename']
                 if img_filename:
                     # 从配置的源图片目录构建路径
                     src_path = os.path.join(IMAGES_SOURCE_DIR, img_filename)
                     if os.path.exists(src_path):
-                        shutil.copy(src_path, os.path.join(img_dir, img_filename))
+                        filtered_ds.append(item)
                     else:
-                        print(f"   Warning: Image not found: {src_path}")
+                        print(f"   Warning: Image not found: {src_path}, removing record from dataset")
+                        missing_images.add(img_filename)
+                else:
+                    # 如果没有文件名，也保留该记录（根据原逻辑）
+                    filtered_ds.append(item)
+            
+            # 如果过滤后数据集为空，跳过
+            if not filtered_ds:
+                print(f"   Skipping {sub_name}: no valid images found")
+                continue
+            
+            # 保存 JSON（只保存有效记录）
+            save_json(filtered_ds, os.path.join(base_dir, f"{sub_name}_data.json"))
 
+            # 复制图片
+            for item in filtered_ds:
+                img_filename = item['image_filename']
+                if img_filename:
+                    src_path = os.path.join(IMAGES_SOURCE_DIR, img_filename)
+                    shutil.copy(src_path, os.path.join(img_dir, img_filename))
+
+    # 如果有缺失的图片，更新原始输入文件
+    if missing_images:
+        print(f"\n4. Updating source files to remove {len(missing_images)} missing image records...")
+        
+        # 更新 captions_data: 移除缺失图片的记录
+        updated_captions = []
+        for item in captions_data:
+            img_filename = normalize_path(item.get('image_path', ''))
+            if img_filename not in missing_images:
+                updated_captions.append(item)
+        
+        # 更新 abstracts_data: 移除缺失图片的 segments
+        for article in abstracts_data:
+            if 'segments' in article:
+                updated_segments = []
+                for segment in article['segments']:
+                    img_filename = segment.get('filename')
+                    if img_filename not in missing_images:
+                        updated_segments.append(segment)
+                article['segments'] = updated_segments
+        
+        # 保存更新后的文件
+        save_json(updated_captions, CAPTIONS_PATH)
+        save_json(abstracts_data, ABSTRACTS_PATH)
+        print(f"   Updated {CAPTIONS_PATH}: {len(captions_data)} -> {len(updated_captions)} records")
+        print(f"   Updated {ABSTRACTS_PATH}: removed segments with missing images")
+    
     print(f"\nDone! All outputs generated in {OUTPUT_ROOT}")
 
 
