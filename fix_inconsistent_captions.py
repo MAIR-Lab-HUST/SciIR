@@ -29,11 +29,11 @@ API_B_MODEL = "qwen3-max"
 
 # 路径配置
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ABSTRACTS_PATH = os.path.join(BASE_DIR, "scir_dataset", "classified_abstracts3.json")
-CAPTIONS_PATH = os.path.join(BASE_DIR, "scir_dataset", "caption3.json")
-IMAGE_DIR = os.path.join(BASE_DIR, "scir_dataset", "filtered_images_3")
-OUTPUT_PATH = os.path.join(BASE_DIR, "scir_dataset", "caption3_fixed.json")
-CACHE_PATH = os.path.join(BASE_DIR, "scir_dataset", "caption3_fixed_cache.json")
+ABSTRACTS_PATH = os.path.join(BASE_DIR, "send", "classified_metadata_1a.json")
+CAPTIONS_PATH = os.path.join(BASE_DIR, "send", "caption_1a_dedup.json")
+IMAGE_DIR = os.path.join(BASE_DIR, "send", "filtered_images_1a")
+OUTPUT_PATH = os.path.join(BASE_DIR, "send", "caption_1a_fixed.json")
+CACHE_PATH = os.path.join(BASE_DIR, "send", "caption_1a_fixed_cache.json")
 
 # 并发配置
 MAX_WORKERS = 10
