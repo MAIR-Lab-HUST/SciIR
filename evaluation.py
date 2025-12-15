@@ -18,7 +18,7 @@ BASE_DELAY = 2  # 基础等待时间（秒）
 
 # 配置 Gemini 模型
 genai.configure(api_key=API_KEY)
-MODEL_NAME = "gemini-1.5-pro"
+MODEL_NAME = "gemini-3-pro-preview"
 
 generation_config = {
     "temperature": 0,
