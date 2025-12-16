@@ -2,32 +2,30 @@ import json
 import os
 import time
 import random
-import google.generativeai as genai
+import base64
+import mimetypes
+import re
+from openai import OpenAI
 from tqdm import tqdm
 
 # ================= 配置区域 =================
-API_KEY = "AIzaSyCSv8Ycw2_C0yFvRKcTU787GDHaKbZemvA"  # 填入你的 Google API Key
+API_KEY = "sk-JfUt2XysrnHF6RZATjog7Vhsey9rQm797LD2n1Vn8MbvimO7"
 IMAGE_FOLDER = ""  # 生成图片存放的文件夹路径
-PROMPT_FILE = "./selected_images_100/prompt.json"
-CHECKLIST_FILE = "./selected_images_100/selected_data.json"
-OUTPUT_FILE = "./selected_images_100/evaluation_results.json"
+PROMPT_FILE = "Cot_All_Three/prompt.json"
+CHECKLIST_FILE = "Cot_All_Three/selected_data.json"
+OUTPUT_FILE = "Cot_All_Three/evaluation_results.json"
 
 # 重试配置
 MAX_RETRIES = 5  # 最大重试次数
 BASE_DELAY = 2  # 基础等待时间（秒）
 
-# 配置 Gemini 模型
-genai.configure(api_key=API_KEY)
+# 配置 OpenAI 客户端
+client = OpenAI(api_key=API_KEY)
+
+
 MODEL_NAME = "gemini-3-pro-preview"
 
-generation_config = {
-    "temperature": 0,
-    "top_p": 1,
-    "response_mime_type": "application/json",
-}
-
 # ================= 系统 Prompt 定义 =================
-# 注意：移除了原本末尾的 "Here is the data... [IMAGE]"，因为这部分现在属于 System Instruction，数据由 User 输入提供
 SYSTEM_PROMPT_TEXT = """
 ### Role
 You are a Senior Scientific Image Reviewer. Your task is to evaluate a generated scientific figure against a specific checklist of requirements. You must be precise, hallucination-free, and strict regarding scientific accuracy.
@@ -70,13 +68,6 @@ For each question in the checklist, perform the following steps:
 }
 """
 
-# ================= 模型初始化 (修改处 1) =================
-# 将 System Prompt 传入 system_instruction 参数
-model = genai.GenerativeModel(
-    model_name=MODEL_NAME,
-    generation_config=generation_config,
-    system_instruction=SYSTEM_PROMPT_TEXT
-)
 
 # ================= 辅助函数 =================
 
@@ -87,9 +78,7 @@ def load_json(path):
 
 def get_original_prompt_text(filename, mode, prompt_map):
     item = prompt_map.get(filename)
-    if not item:
-        return None
-
+    if not item: return None
     if mode == "cot":
         return item.get("sci-RCoT", "")
     elif mode == "abstract":
@@ -98,13 +87,29 @@ def get_original_prompt_text(filename, mode, prompt_map):
         return item.get("sci-RCoT", "")
 
 
+def encode_image(image_path):
+    mime_type, _ = mimetypes.guess_type(image_path)
+    if mime_type is None: mime_type = "image/png"
+    with open(image_path, "rb") as image_file:
+        base64_str = base64.b64encode(image_file.read()).decode('utf-8')
+    return base64_str, mime_type
+
+
+def clean_json_text(text):
+    """
+    清理函数：如果模型返回了 Markdown 代码块 (```json ... ```)，
+    这里将其去除，以便 json.loads 能正常解析。
+    """
+    # 移除 ```json 和 ``` 标记
+    text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^```\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'```\s*$', '', text, flags=re.MULTILINE)
+    return text.strip()
+
+
 def evaluate_image_with_retry(image_path, original_prompt_text, checklist_data):
-    """
-    带重试机制的评估函数
-    """
-    # 准备 Prompt 文本 (User Prompt)
     checklist_str = json.dumps(checklist_data, indent=2)
-    user_prompt_content = f"""
+    user_text_content = f"""
 [ORIGINAL INPUT PROMPT]
 {original_prompt_text}
 [END PROMPT]
@@ -116,71 +121,79 @@ def evaluate_image_with_retry(image_path, original_prompt_text, checklist_data):
 Please evaluate the provided image against every question in the checklist above.
 """
 
+    try:
+        base64_image, mime_type = encode_image(image_path)
+    except Exception as e:
+        return {"error": f"Failed to encode image: {str(e)}"}
+
     retries = 0
     while retries <= MAX_RETRIES:
         try:
-            # 1. 上传图片
-            sample_file = genai.upload_file(path=image_path, display_name="Scientific Image")
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT_TEXT},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": user_text_content},
+                        {"type": "image_url", "image_url": {
+                            "url": f"data:{mime_type};base64,{base64_image}",
+                            "detail": "high"
+                        }}
+                    ]}
+                ],
+                temperature=0,
+                top_p=1,
+                # create() 中已移除了 response_format={"type": "json_object"}
+            )
 
-            # 2. 调用模型 (修改处 2)
-            # 这里不再传入 SYSTEM_PROMPT，只传入 [文件, 用户文本]
-            # System Instruction 已经在模型初始化时内置了
-            response = model.generate_content([sample_file, user_prompt_content])
+            result_text = response.choices[0].message.content
 
-            # 3. 尝试解析 JSON
-            result_json = json.loads(response.text)
+            # 清理可能存在的 Markdown 标记
+            cleaned_text = clean_json_text(result_text)
 
-            # 成功则直接返回
+            result_json = json.loads(cleaned_text)
             return result_json
 
         except Exception as e:
             retries += 1
             if retries > MAX_RETRIES:
-                print(f"\n[Error] Failed to process {os.path.basename(image_path)} after {MAX_RETRIES} retries.")
-                return {"error": f"Max retries reached. Last error: {str(e)}"}
+                print(f"\n[Error] Failed to process {os.path.basename(image_path)}: {str(e)}")
+                return {"error": f"Max retries reached. Error: {str(e)}"}
 
-            # 指数退避算法
             sleep_time = (BASE_DELAY * (2 ** (retries - 1))) + random.uniform(0, 1)
-            print(
-                f"\n[Warning] Error on {os.path.basename(image_path)}: {e}. Retrying in {sleep_time:.2f}s... ({retries}/{MAX_RETRIES})")
+            print(f"\n[Warning] Retry {retries}/{MAX_RETRIES} for {os.path.basename(image_path)}: {e}")
             time.sleep(sleep_time)
 
 
 # ================= 主逻辑 =================
 
 def main():
-    print("Loading data...")
-    try:
-        prompt_data_list = load_json(PROMPT_FILE)
-        checklist_data_list = load_json(CHECKLIST_FILE)
-    except FileNotFoundError as e:
-        print(f"Error: Could not find data file. {e}")
+    if not os.path.exists(PROMPT_FILE) or not os.path.exists(CHECKLIST_FILE):
+        print("Error: Data files not found.")
         return
 
+    prompt_data_list = load_json(PROMPT_FILE)
+    checklist_data_list = load_json(CHECKLIST_FILE)
     prompt_map = {item['image_filename']: item for item in prompt_data_list}
     results = []
 
-    print(f"Starting evaluation for {len(checklist_data_list)} items with Retry Mode (System Instruction Separated)...")
+    print(f"Starting evaluation for {len(checklist_data_list)} items (No JSON Mode)...")
 
-    # 使用 tqdm 显示进度条
     for entry in tqdm(checklist_data_list):
         image_filename = entry['image_path']
         mode = entry['used_prompt_mode']
         checklist_obj = entry['generated_checklist']
 
         full_image_path = os.path.join(IMAGE_FOLDER, image_filename)
-
         if not os.path.exists(full_image_path):
             results.append({"image_filename": image_filename, "error": "Image file not found"})
             continue
 
         original_prompt_text = get_original_prompt_text(image_filename, mode, prompt_map)
-
         if not original_prompt_text:
             results.append({"image_filename": image_filename, "error": "Prompt text not found"})
             continue
 
-        # 调用带重试的评估函数
         eval_result = evaluate_image_with_retry(full_image_path, original_prompt_text, checklist_obj)
 
         results.append({
@@ -189,7 +202,6 @@ def main():
             "evaluation": eval_result
         })
 
-    # 保存最终结果
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
 
