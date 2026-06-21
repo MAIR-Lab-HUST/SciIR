@@ -38,7 +38,7 @@ For evaluation, we propose **SciIR-Bench**, which aligns with these three semiot
 - 🧠 **A Principled Taxonomy.** We ground scientific image reasoning in **Peirce's Semiotic Triad**, decomposing scientific correctness into three verifiable dimensions: *Entity Structure* (Icon), *Scientific Process* (Index), and *Scientific Law* (Symbol).
 - 📚 **SciIR-82k Dataset.** A large-scale refined dataset of **>80,000** scientific image–text pairs sourced from *Nature* and *Nature Communications*, enhanced with **Sci-RCoT** annotations that explicitly formalize latent visual reasoning pathways.
 - 🔬 **SciIR-Bench Benchmark.** The **first** benchmark to systematically categorize evaluation tracks based on multidimensional scientific correctness, employing a novel **Atomic Checklist** to provide fine-grained, verifiable questions.
-- 🚀 **Qwen-Image-SciIR Baseline.** A strong open-source baseline that boosts the final SciIR-Bench score from **35% → 43%** by fine-tuning Qwen-Image-2512, serving as a reliable starting point for future research.
+- 🚀 **Qwen-Image-SciIR model.** A strong open-source baseline that boosts the final SciIR-Bench score from **35% → 43%** by fine-tuning Qwen-Image-2512, serving as a reliable starting point for future research.
 
 ---
 
@@ -58,7 +58,7 @@ SciIR-82k is grounded in a semiotic triad and constructed through a **multi-stag
 
 > ### 🚧 SciIR-82k is coming soon!
 >
-> We are preparing the **SciIR-82k** dataset (>80,000 scientific image–text pairs with Sci-RCoT annotations) for public release. The download link, dataset card, and usage instructions **will be released here**. Please ⭐ **star** and **watch** this repository to be notified.
+> We are preparing the **SciIR-82k** dataset (>80,000 scientific image–text pairs with Sci-RCoT annotations) for public release. The download link, dataset card, and usage instructions will be released. Please ⭐ **star** this repository to be notified.
 >
 > <!-- 🔗 Download: [ coming soon ] -->
 > <!-- 🤗 Hugging Face: [ coming soon ] -->
@@ -145,11 +145,7 @@ During inference, a **chained generation flow** ensures the reasoning module is 
 </div>
 
 **Key findings:**
-- 🥇 **Closed- vs. Open-Source.** Nano-Banana-Pro's near-saturation (**95%**) confirms the task is solvable, yet a ~60% gap remains for open-source contenders — aesthetic-focused training optimizes *perceptual fidelity* at the cost of scientific logic.
-- ✍️ **Text rendering is a shared failure.** Even the top open models score merely **~15%** (Diffusion) and **~8%** (AutoRegressive) on the Text track, exposing a fundamental lack of fine-grained typographic control.
 - 📈 **Fine-tuning works.** Qwen-Image-SciIR lifts the Final Score from **35% → 43%**, with the largest gains on **Scientific Process (+16%)** and **Entity Structure (+9%)**, demonstrating that reasoning-dense training measurably improves scientific consistency beyond perceptual quality alone.
-- 🔍 **A faithful metric.** Our Atomic Checklist achieves the strongest alignment with human experts (Pearson's r = **0.692**), substantially outperforming CLIPScore, VQAScore, and VIEScore.
-
 ---
 
 ## 📂 Repository Structure
@@ -190,8 +186,6 @@ If you find SciIR useful for your research, please consider citing our work:
   year      = {2026}
 }
 ```
-
-> 📝 The full author list and final BibTeX entry will be updated upon the camera-ready release.
 
 ---
 
