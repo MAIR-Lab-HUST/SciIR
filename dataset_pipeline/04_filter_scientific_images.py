@@ -10,7 +10,7 @@ import threading
 
 # ✅ 初始化客户端
 client = OpenAI(
-    api_key="sk-eGILuyIosedfyzKZB2IMycqSAaywcJpgbzpi3EGxuzmj53mM",
+    api_key="YOUR_API_KEY_HERE",
     base_url="https://chat.intern-ai.org.cn/api/v1/",
 )
 

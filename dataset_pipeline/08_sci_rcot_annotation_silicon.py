@@ -1,12 +1,12 @@
+import re
 import json
+import base64
 import os
 import time
 import threading
 import signal
 import atexit
 import sys
-import base64
-import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from openai import OpenAI
@@ -19,32 +19,44 @@ except ImportError:
         return iterable
 
 # ============ 配置区域 ============
-API_A_KEY = "sk-a6e5442b7edf46e2a1d39351875309de"
-API_A_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-API_A_MODEL = "qwen3-vl-plus"
 
-API_B_KEY = "sk-a6e5442b7edf46e2a1d39351875309de"
-API_B_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-API_B_MODEL = "qwen3-max"
+# 【注意】请在此处填入你的硅基流动 API Key
+SILICON_API_KEY = "YOUR_SILICONFLOW_API_KEY"
 
-# 路径配置
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ABSTRACTS_PATH = os.path.join(BASE_DIR, "send", "classified_metadata_1a.json")
-CAPTIONS_PATH = os.path.join(BASE_DIR, "send", "caption_1a_dedup.json")
-IMAGE_DIR = os.path.join(BASE_DIR, "send", "filtered_images_1a")
-OUTPUT_PATH = os.path.join(BASE_DIR, "send", "caption_1a_fixed.json")
-CACHE_PATH = os.path.join(BASE_DIR, "send", "caption_1a_fixed_cache.json")
+# 硅基流动统一 Base URL
+SILICON_BASE_URL = "https://api.siliconflow.cn/v1"
+
+API_A_KEY = SILICON_API_KEY
+API_A_BASE = SILICON_BASE_URL
+# 模型 A: VL 模型 (根据你的要求修改)
+API_A_MODEL = "Qwen/Qwen3-VL-32B-Instruct"
+
+API_B_KEY = SILICON_API_KEY
+API_B_BASE = SILICON_BASE_URL
+# 模型 B: 文本推理模型 (根据你的要求修改)
+API_B_MODEL = "Qwen/Qwen3-235B-A22B-Instruct-2507"
+
+# 输入输出路径
+CLASSIFIED_INPUT = "scir_dataset/classified_abstracts6.json"
+OUTPUT_PATH = "scir_dataset/caption6.json"
+CACHE_PATH = "scir_dataset/caption_cache6.json"
+
+# 图片文件夹路径配置
+IMAGE_DIR = "scir_dataset/filtered_images_6"
 
 # 并发配置
-MAX_WORKERS = 10
+MAX_WORKERS = 50
 MAX_RETRIES = 6
 RETRY_DELAY = 2
-BATCH_SIZE = 20
+
+# 批量写入配置
+BATCH_SIZE = 100
 
 client_A = OpenAI(api_key=API_A_KEY, base_url=API_A_BASE)
 client_B = OpenAI(api_key=API_B_KEY, base_url=API_B_BASE)
 
-# ============ 数据管理类 (来自 pipeline_final.py) ============
+
+# ============ 数据管理类 ============
 
 class ResultManager:
     def __init__(self, save_path, batch_size=50):
@@ -101,23 +113,55 @@ class ResultManager:
         except Exception as e:
             print(f"[Error] 保存文件失败: {e}")
 
+
 # ============ 工具函数 ============
-
-def normalize_path(p):
-    if not p:
-        return ""
-    return os.path.basename(p)
-
-def load_json(path):
-    if not os.path.exists(path):
-        print(f"Error: File not found {path}")
-        return []
-    with open(path, 'r', encoding='utf-8') as f:
-        return json.load(f)
 
 def encode_image(image_path):
     with open(image_path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
+
+
+def call_model(client, model, system_prompt, user_prompt, temperature=0.1, top_p=1.0, image_base64=None):
+    messages = [{"role": "system", "content": system_prompt}]
+
+    if image_base64:
+        # [修改] 适配标准 OpenAI 格式（硅基流动要求）：
+        # image_url 必须是一个字典 {"url": ...}，而不能直接是字符串
+        content = [
+            {"type": "text", "text": user_prompt},
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{image_base64}"
+                }
+            }
+        ]
+        messages.append({"role": "user", "content": content})
+    else:
+        messages.append({"role": "user", "content": user_prompt})
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            # 硅基流动的 API 可能会对 max_tokens 有默认限制，
+            # 如果发现截断，可以在此处显式添加 max_tokens=4096
+            response = client.chat.completions.create(
+                model=model,
+                temperature=temperature,
+                top_p=top_p,
+                messages=messages
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            wait_time = RETRY_DELAY * (2 ** attempt)
+            if attempt < MAX_RETRIES - 1:
+                # 打印错误以便调试（特别是 400 Bad Request 通常意味着格式问题）
+                print(f"[Retry {attempt + 1}] Error: {e}")
+                time.sleep(wait_time)
+            else:
+                print(f"[Error] API Failed after max retries: {e}")
+
+    return ""
+
 
 def clean_json_output(text):
     if not text:
@@ -132,35 +176,8 @@ def clean_json_output(text):
     except json.JSONDecodeError:
         return None
 
-def call_model(client, model, system_prompt, user_prompt, temperature=0.1, top_p=1.0, image_base64=None):
-    messages = [{"role": "system", "content": system_prompt}]
-    if image_base64:
-        content = [
-            {"type": "text", "text": user_prompt},
-            {"type": "image_url", "image_url": f"data:image/png;base64,{image_base64}"}
-        ]
-        messages.append({"role": "user", "content": content})
-    else:
-        messages.append({"role": "user", "content": user_prompt})
 
-    for attempt in range(MAX_RETRIES):
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                temperature=temperature,
-                top_p=top_p,
-                messages=messages
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            wait_time = RETRY_DELAY * (2 ** attempt)
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(wait_time)
-            else:
-                print(f"[Error] API Failed: {e}")
-    return ""
-
-# ============ 核心 Prompt 与逻辑 (来自 pipeline_final.py) ============
+# ============ 核心 Prompt 与逻辑 ============
 
 def generate_reasoning(data):
     system_prompt = """你是一名科学图像推理标注员。你的职责是：基于输入的论文文本与图片，只提取图像与图注明确支持的科学信息，输出严格结构化的 reasoning JSON。禁止编造超出文本与图像所支持的结论；不得引入图像中不可见或图注未支持的元素；不得进行常识性补全。内部可以先思考并对图像整体布局做隐式理解，但最终输出必须仅包含指定的 JSON 字段。
@@ -182,6 +199,7 @@ def generate_reasoning(data):
 - terms：仅写术语/名词（不含句子、标点与修饰），按图注与图像确证的粒度。
 - visualization：对于terms中的每一项都要有一段可视化描述；使用具体、可还原画面的视觉要素描述；不得引入图外信息。
 - 非空校验：输出的 JSON 中，所有选中的推理能力对应的 "terms" 和 "visualization" 严禁输出空列表 "[]"。
+- 未被选择的能力键必须为 null。
 输出格式：
 {{
   "reasoning": {{
@@ -194,11 +212,12 @@ def generate_reasoning(data):
     image_base64 = encode_image(data["segments"]["path"])
     user_prompt = f"""
 输入：
-- text：{{"article_title": "{data['article_title']}", "article_abstract": "{data['article_abstract']}", "article_body": "{data.get('article_body', '')}", "figure_title": "{data['figure_title']}"}}
+- text：{{"article_title": "{data['article_title']}", "article_abstract": "{data['article_abstract']}", "article_body": "{data['article_body']}", "figure_title": "{data['figure_title']}"}}
 - figure_caption：{{"figure_caption": "{data['figure_caption']}"}}
 - reasoning_ability：{data["segments"]["labels"]}
-- subject：{data.get("subjects", [])}
+- subject：{data["subjects"]}
 """
+    # 保持原参数 temperature=0.1
     result = call_model(client_A, API_A_MODEL, system_prompt, user_prompt, temperature=0.1, image_base64=image_base64)
     reasoning_json = clean_json_output(result)
 
@@ -208,18 +227,17 @@ def generate_reasoning(data):
     if "reasoning" in reasoning_json and isinstance(reasoning_json["reasoning"], dict):
         r_data = reasoning_json["reasoning"]
         target_keys = ["ScientificLaw", "EntityStructure", "ScientificProcess"]
-
         for key in target_keys:
             if key in r_data:
                 val = r_data[key]
                 if isinstance(val, dict):
                     is_terms_empty = not val.get("terms")
                     is_viz_empty = not val.get("visualization")
-
                     if is_terms_empty and is_viz_empty:
                         r_data[key] = None
 
     return reasoning_json
+
 
 def generate_cot(reasoning_json, data):
     system_prompt = """你是一名科学图像可视化复述员。你的职责是：输入reasoning，以reasoning中的 visualization 条目为主，参考输入的图片，输出连贯、细节充分的场景化描述sci-RCoT。
@@ -250,12 +268,14 @@ sci-RCoT要完整覆盖reasoning 中各已选标签的 visualization 数组里�
 - figure_caption：{{"figure_title": "{data['figure_title']}", "figure_caption": "{data['figure_caption']}"}}
 - reasoning：{json.dumps(reasoning_json, ensure_ascii=False)}
 """
+    # 保持原参数 temperature=0.3
     result = call_model(client_A, API_A_MODEL, system_prompt, user_prompt, temperature=0.3, image_base64=image_base64)
     result_json = clean_json_output(result)
 
     if result_json is None:
         return "", []
     return result_json.get("sci_RCoT", ""), result_json.get("rendered_text", [])
+
 
 def generate_prompt(reasoning_json, sci_rcot, rendered_text):
     system_prompt = """Role: Scientific Image Reasoning Generation Prompt Assistant Objective: Your goal is to generate a concise, semantically compressed abstract_prompt in JSON format. You will achieve this by synthesizing input sci-RCoT with specific Reasoning dimension terms.
@@ -287,6 +307,7 @@ Note for "retained_text": This list must contains only strings for which explici
         "rendered_text_candidates": rendered_text
     }, ensure_ascii=False, indent=2)
 
+    # 保持原参数 temperature=0.3, 使用 Text 模型
     result = call_model(client_B, API_B_MODEL, system_prompt, user_prompt, temperature=0.3, image_base64=None)
     prompt_json = clean_json_output(result)
 
@@ -297,9 +318,12 @@ Note for "retained_text": This list must contains only strings for which explici
     retained_text_list = prompt_json.get("retained_text", [])
     return final_prompt, retained_text_list
 
+
+# ============ 单个任务处理 ============
+
 def process_single_task(task_data, manager: ResultManager):
     seg = task_data["segments"]
-    key = normalize_path(seg.get("path")) # 使用文件名作为 Key
+    key = seg.get("path") or seg.get("filename")
 
     if not os.path.exists(seg["path"]):
         return f"Skip: {key} (File not found at {seg['path']})"
@@ -319,260 +343,110 @@ def process_single_task(task_data, manager: ResultManager):
             "retained_text_stage3": retained_text_list
         }
 
-        # === 写入缓存 ===
         manager.add_result(key, result_entry)
+
         return f"Success: {key}"
 
     except Exception as e:
         return f"Failed: {key} ({str(e)})"
-
-# ============ 清理与更新逻辑 ============
-
-def cleanup_inconsistent_data(manager, abstracts_data, captions_data):
-    print("\n[System] Starting final consistency check and cleanup...")
-    
-    # 1. Merge fixed results into captions_data
-    fixed_results = {normalize_path(item["image_path"]): item for item in manager.data["outputs"]}
-    caption_map = {normalize_path(item['image_path']): item for item in captions_data}
-    
-    merged_count = 0
-    for filename, fixed_item in fixed_results.items():
-        if filename in caption_map:
-            original = caption_map[filename]
-            # Update fields
-            original["reasoning"] = fixed_item.get("reasoning", original.get("reasoning"))
-            original["sci-RCoT"] = fixed_item.get("sci-RCoT", original.get("sci-RCoT"))
-            original["science_abstract_prompt"] = fixed_item.get("science_abstract_prompt", original.get("science_abstract_prompt"))
-            
-            # Optional: Map specific keys if needed, preserving existing ones
-            if "rendered_text_stage2" in fixed_item:
-                original["rendered_text"] = fixed_item["rendered_text_stage2"]
-            
-            merged_count += 1
-    
-    print(f"Merged {merged_count} fixed items into memory.")
-
-    # 2. Identify items to delete (Check consistency again)
-    items_to_delete = set()
-    
-    # Re-scan all abstracts to find inconsistencies
-    for article in abstracts_data:
-        for segment in article.get("segments", []):
-            img_filename = segment.get("filename")
-            if not img_filename:
-                 raw_path = segment.get("path")
-                 if raw_path:
-                     img_filename = os.path.basename(raw_path)
-            
-            if not img_filename:
-                continue
-                
-            normalized_filename = img_filename
-            caption_item = caption_map.get(normalized_filename)
-            
-            should_delete = False
-            
-            if not caption_item:
-                should_delete = True
-            else:
-                seg_labels = segment.get("labels", [])
-                if seg_labels:
-                    reasoning = caption_item.get("reasoning", {})
-                    for label in seg_labels:
-                        label_data = reasoning.get(label)
-                        is_valid = False
-                        if label_data and isinstance(label_data, dict):
-                            terms = label_data.get("terms", [])
-                            visualization = label_data.get("visualization", [])
-                            if terms and len(terms) > 0 and visualization and len(visualization) > 0:
-                                is_valid = True
-                        
-                        if not is_valid:
-                            should_delete = True
-                            break
-            
-            if should_delete:
-                items_to_delete.add(normalized_filename)
-
-    if not items_to_delete:
-        print("No remaining inconsistencies found.")
-    else:
-        print(f"Found {len(items_to_delete)} items still inconsistent. Deleting...")
-        
-        # A. Delete Images
-        deleted_imgs = 0
-        for fname in items_to_delete:
-            fpath = os.path.join(IMAGE_DIR, fname)
-            if os.path.exists(fpath):
-                try:
-                    os.remove(fpath)
-                    deleted_imgs += 1
-                except Exception as e:
-                    print(f"Failed to delete {fpath}: {e}")
-        print(f"Deleted {deleted_imgs} image files.")
-
-        # B. Update Abstracts (Remove segments)
-        for article in abstracts_data:
-            new_segments = []
-            for segment in article.get("segments", []):
-                fname = segment.get("filename") or os.path.basename(segment.get("path", ""))
-                if fname not in items_to_delete:
-                    new_segments.append(segment)
-            article["segments"] = new_segments
-        
-        # Filter out articles with no segments left? 
-        # User said delete records. If article has empty segments, it's effectively empty record of images.
-        # But article text remains. Keeping article structure usually safer unless explicitly told to remove empty articles.
-        # I will keep article but empty segments list.
-
-        # C. Update Captions
-        captions_data[:] = [item for item in captions_data if normalize_path(item.get("image_path")) not in items_to_delete]
-
-    # 3. Save updated files
-    if merged_count > 0 or items_to_delete:
-        print("Saving updated datasets to source files...")
-        try:
-            with open(ABSTRACTS_PATH, "w", encoding="utf-8") as f:
-                json.dump(abstracts_data, f, ensure_ascii=False, indent=2)
-            with open(CAPTIONS_PATH, "w", encoding="utf-8") as f:
-                json.dump(captions_data, f, ensure_ascii=False, indent=2)
-            print("Source files updated successfully.")
-        except Exception as e:
-            print(f"Error saving source files: {e}")
 
 
 # ============ 主程序 ============
 
 manager = ResultManager(CACHE_PATH, batch_size=BATCH_SIZE)
 
+
 def signal_handler(sig, frame):
     print("\n[System] 捕获中断信号，正在保存数据，请勿强制关闭...")
     manager.force_save()
     sys.exit(0)
 
+
 signal.signal(signal.SIGINT, signal_handler)
 atexit.register(manager.force_save)
 
-def main():
-    print("Checking inconsistencies and preparing tasks...")
-    
-    abstracts_data = load_json(ABSTRACTS_PATH)
-    captions_data = load_json(CAPTIONS_PATH)
+if __name__ == "__main__":
+    print(f"初始化... 图片目录: {IMAGE_DIR}")
+    print(f"使用 API Endpoint: {SILICON_BASE_URL}")
+    print(f"缓存路径: {CACHE_PATH}, 批量写入大小: {BATCH_SIZE}")
 
-    if not abstracts_data or not captions_data:
-        print("Data load failed. Exiting.")
-        return
+    classified_path = Path(CLASSIFIED_INPUT)
+    if not classified_path.exists():
+        print(f"输入文件未找到: {CLASSIFIED_INPUT}")
+        exit(1)
 
-    # 构建 Caption 索引
-    caption_map = {normalize_path(item['image_path']): item for item in captions_data}
+    raw_items = json.load(open(classified_path, "r", encoding="utf-8"))
 
+    # --- 任务构建 ---
     tasks = []
-    
-    for article in abstracts_data:
-        for segment in article.get("segments", []):
-            img_filename = segment.get("filename")
-            if not img_filename:
-                 raw_path = segment.get("path")
-                 if raw_path:
-                     img_filename = os.path.basename(raw_path)
-            
-            if not img_filename:
+    for item in raw_items:
+        segs = item.get("segments", [])
+        if isinstance(segs, dict): segs = [segs]
+        if not segs:
+            lp = item.get("local_path") or item.get("image_path")
+            if lp:
+                segs = [{"path": lp, "filename": Path(lp).name, "labels": []}]
+            else:
                 continue
 
-            # 规范化用于查找
-            normalized_filename = img_filename
-            
-            # 检查是否存在于 Caption 数据中
-            caption_item = caption_map.get(normalized_filename)
-            
-            # 构造完整的图片路径
-            full_image_path = os.path.join(IMAGE_DIR, normalized_filename)
+        for seg in segs:
+            filename = seg.get("filename")
+            if not filename:
+                raw_path = seg.get("path")
+                if raw_path:
+                    filename = os.path.basename(raw_path)
 
-            # 如果原本就没有 Caption，或者检查出不一致，都添加到重做列表
-            needs_fix = False
-            
-            if not caption_item:
-                # print(f"Missing caption for {normalized_filename}")
-                # 如果连 caption 都没有，可能原本就被过滤了，或者需要补充。
-                # 这里主要关注“不一致”，即有 label 但没内容。如果原本没 caption，假设不需要处理？
-                # 根据用户描述“有很多labels中标有scientificLaw的但是caption中为空”，说明是有 caption 条目的，只是内容空。
-                pass 
+            if filename:
+                new_full_path = os.path.join(IMAGE_DIR, filename)
+                seg["path"] = new_full_path
+                seg["filename"] = filename
             else:
-                seg_labels = segment.get("labels", [])
-                if not seg_labels:
-                    continue
+                pass
 
-                reasoning = caption_item.get("reasoning", {})
-                
-                # 检查每个 label
-                for label in seg_labels:
-                    label_data = reasoning.get(label)
-                    
-                    is_valid = False
-                    if label_data and isinstance(label_data, dict):
-                        terms = label_data.get("terms", [])
-                        visualization = label_data.get("visualization", [])
-                        if terms and len(terms) > 0 and visualization and len(visualization) > 0:
-                            is_valid = True
-                    
-                    if not is_valid:
-                        needs_fix = True
-                        break
-            
-            if needs_fix:
-                # 检查是否已经处理过 (cache)
-                if manager.is_processed(normalized_filename):
-                    continue
-                
-                # 构造任务
-                task = article.copy()
-                # 确保 segment 包含正确的本地路径
-                seg_copy = segment.copy()
-                seg_copy["path"] = full_image_path
-                seg_copy["filename"] = normalized_filename
-                task["segments"] = seg_copy
-                
-                tasks.append(task)
+            task = item.copy()
+            task["segments"] = seg
+            tasks.append(task)
 
-    print(f"Found {len(tasks)} inconsistent items to re-process.")
-    
-    if not tasks:
-        print("No tasks to process.")
-        return
+    # --- 过滤已完成任务 ---
+    pending_tasks = []
+    for idx, data in enumerate(tasks):
+        seg = data["segments"]
+        key = seg.get("path") or seg.get("filename") or str(idx)
+        if not manager.is_processed(key):
+            pending_tasks.append(data)
+
+    total = len(tasks)
+    processed = len(manager.data["processed"])
+    print(f"总任务: {total}, 已完成: {processed}, 待处理: {len(pending_tasks)}")
 
     # --- 并发执行 ---
-    print(f"Starting processing with {MAX_WORKERS} workers...")
-    
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_key = {
-            executor.submit(process_single_task, task, manager): task["segments"]["filename"]
-            for task in tasks
-        }
+    if pending_tasks:
+        print(f"开始处理，线程数: {MAX_WORKERS}...")
 
-        for future in tqdm(as_completed(future_to_key), total=len(tasks), desc="Fixing"):
-            key = future_to_key[future]
-            try:
-                msg = future.result()
-                if msg.startswith("Failed"):
-                    print(f"\n{msg}")
-            except Exception as exc:
-                print(f"\n[Fatal Error in Thread] {key}: {exc}")
+        # 硅基流动建议在请求头中添加 'extra_body' 来支持 'thinking' 等参数，
+        # 但目前我们只用标准 Chat Completions，暂不需要额外 header。
 
-    print(f"All tasks completed. Saving results to: {OUTPUT_PATH}")
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            future_to_key = {
+                executor.submit(process_single_task, task, manager): (task["segments"].get("path") or "unknown")
+                for task in pending_tasks
+            }
+
+            for future in tqdm(as_completed(future_to_key), total=len(pending_tasks), desc="Processing"):
+                key = future_to_key[future]
+                try:
+                    msg = future.result()
+                    if msg.startswith("Failed"):
+                        print(f"\n{msg}")
+                except Exception as exc:
+                    print(f"\n[Fatal Error in Thread] {key}: {exc}")
+
+    print(f"所有任务执行完毕。最终结果将保存至: {OUTPUT_PATH}")
     manager.force_save()
 
-    # 导出最终结果 (合并新的结果到旧的或者另存为)
-    # 这里我们另存为 fix 文件，后续用户可以决定如何合并
     try:
         with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
             json.dump(manager.data["outputs"], f, ensure_ascii=False, indent=2)
-        print("Fixed captions exported.")
+        print("最终结果已导出。")
     except Exception as e:
-        print(f"Export failed: {e}")
-
-    # 执行最终清理与更新
-    cleanup_inconsistent_data(manager, abstracts_data, captions_data)
-
-if __name__ == "__main__":
-    main()
-
+        print(f"导出最终结果失败: {e}")

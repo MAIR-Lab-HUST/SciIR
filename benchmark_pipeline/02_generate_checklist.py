@@ -180,7 +180,7 @@ def main():
     parser.add_argument("--output", "-o", type=str, required=True, help="Path to save the output JSON file.")
     parser.add_argument("--mode", "-m", type=str, choices=['cot', 'abstract'], default='cot',
                         help="Prompt source: 'cot' for sci-RCoT, 'abstract' for science_abstract_prompt.")
-    parser.add_argument("--api_key", type=str, default='AIzaSyCSv8Ycw2_C0yFvRKcTU787GDHaKbZemvA', help="Google GenAI API Key.")
+    parser.add_argument("--api_key", type=str, default='YOUR_GOOGLE_GENAI_API_KEY', help="Google GenAI API Key.")
 
     args = parser.parse_args()
 

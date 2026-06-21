@@ -9,7 +9,7 @@ from openai import OpenAI
 from tqdm import tqdm
 
 # ================= 配置区域 =================
-API_KEY = "sk-JfUt2XysrnHF6RZATjog7Vhsey9rQm797LD2n1Vn8MbvimO7"
+API_KEY = "YOUR_API_KEY_HERE"
 IMAGE_FOLDER = ""  # 生成图片存放的文件夹路径
 PROMPT_FILE = "Cot_All_Three/prompt.json"
 CHECKLIST_FILE = "Cot_All_Three/selected_data.json"

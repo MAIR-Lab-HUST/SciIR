@@ -17,10 +17,10 @@ OUTPUT_JSON_PATH = "scir_dataset/classified_abstracts3.json"
 CACHE_PATH = "abstract_classification_cache.json"
 
 API_KEYS = [
-    "sk-pmxwgcwdstzgjqvhvxaulhbnqkajhmvgleoxmjvioadgqdcg",
-    "sk-bsrtizgzefklhyziwcoiifrrycdaagtrvupuyterfilcjkxw",
-    "sk-fcffshebwviqxokknuuibustebyutizlveyakakdbspjkdox",
-    "sk-gzpgdgjzbjvehsmvmkemydiyclhwjunmthevinrdyygejsiq"
+    "YOUR_API_KEY_HERE_1",
+    "YOUR_API_KEY_HERE_2",
+    "YOUR_API_KEY_HERE_3",
+    "YOUR_API_KEY_HERE_4"
 ]
 
 MODEL_NAME = "Qwen/Qwen2.5-72B-Instruct"
