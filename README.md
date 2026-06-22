@@ -5,7 +5,7 @@
 <p align="center">
   <a href="#"><img src="https://img.shields.io/badge/ECCV-2026-blue?style=for-the-badge" alt="ECCV 2026"></a>
   <a href="https://github.com/cotton-sss/SciIR"><img src="https://img.shields.io/badge/Code-GitHub-black?style=for-the-badge&logo=github" alt="Code"></a>
-  <a href="#-dataset"><img src="https://img.shields.io/badge/Dataset-SciIR-82k-orange?style=for-the-badge" alt="Dataset"></a>
+  <a href="#-dataset"><img src="https://img.shields.io/badge/Dataset-SciIR--82k-orange?style=for-the-badge" alt="Dataset"></a>
   <a href="#-sciir-bench-benchmark"><img src="https://img.shields.io/badge/Benchmark-SciIR--Bench-green?style=for-the-badge" alt="Benchmark"></a>
   <a href="#-license"><img src="https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey?style=for-the-badge" alt="License"></a>
 </p>
@@ -56,7 +56,7 @@ SciIR-82k is grounded in a semiotic triad and constructed through a **multi-stag
 
 ## 📦 Dataset
 
-### 🤗 Hugging Face: [ coming soon ] -->https://huggingface.co/datasets/contton-sss/SciIR-82k
+### 🤗 Hugging Face: https://huggingface.co/datasets/contton-sss/SciIR-82k
 
 The complete set of scripts used to build SciIR-82k is provided under [`dataset_pipeline/`](dataset_pipeline) for full transparency and reproducibility:
 
