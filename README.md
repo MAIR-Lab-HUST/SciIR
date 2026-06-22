@@ -56,12 +56,7 @@ SciIR-82k is grounded in a semiotic triad and constructed through a **multi-stag
 
 ## 📦 Dataset
 
-> ### 🚧 SciIR-82k is coming soon!
->
-> We are preparing the **SciIR-82k** dataset (>80,000 scientific image–text pairs with Sci-RCoT annotations) for public release. The download link, dataset card, and usage instructions will be released. Please ⭐ **star** this repository to be notified.
->
-> <!-- 🔗 Download: [ coming soon ] -->
-> <!-- 🤗 Hugging Face: [ coming soon ] -->
+> <!-- 🤗 Hugging Face: [ coming soon ] -->https://huggingface.co/datasets/contton-sss/SciIR-82k
 
 The complete set of scripts used to build SciIR-82k is provided under [`dataset_pipeline/`](dataset_pipeline) for full transparency and reproducibility:
 
