@@ -166,6 +166,17 @@ bash code/model/visualgenerator/qwenimagelora.sh
 ```
 SciIR/
 ├── assets/                          # Figures used in this README
+├── benchmark_sample/                # Sample data from SciIR-Bench
+│   ├── instruction_following/        # IF samples with dense Sci-RCoT prompts
+│   │   ├── All_Three/               # caption.json, checklist.json, metadata.json
+│   │   ├── EntityStructure_ScientificLaw/
+│   │   ├── EntityStructure_ScientificProcess/
+│   │   └── ScientificLaw_ScientificProcess/
+│   └── intrinsic_reasoning/          # IR samples with abstract prompts
+│       ├── All_Three/               # caption.json, checklist.json, metadata.json
+│       ├── EntityStructure_ScientificLaw/
+│       ├── EntityStructure_ScientificProcess/
+│       └── ScientificLaw_ScientificProcess/
 ├── code/
 │   ├── dataset&benchmark/           # 🧪 SciIR-82k construction & 🔬 SciIR-Bench scripts
 │   │   ├── crop.py                      # YOLO11 sub-figure extraction
