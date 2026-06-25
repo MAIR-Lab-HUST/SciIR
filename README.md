@@ -46,7 +46,7 @@ For evaluation, we propose **SciIR-Bench**, which aligns with these three semiot
 
 ## 🏗️ The SciIR-82k Pipeline
 
-SciIR-82k is grounded in a semiotic triad and constructed through a **multi-stage automated pipeline** for promoting scientific fidelity. The pipeline comprises three stages, fully reproduced by the scripts under [`dataset_pipeline/`](dataset_pipeline):
+SciIR-82k is grounded in a semiotic triad and constructed through a **multi-stage automated pipeline** for promoting scientific fidelity. The pipeline comprises three stages, with the core scripts provided under [`code/dataset&benchmark/`](code/dataset%26benchmark):
 
 1. **Corpus Construction** — Collect open-access articles (CC BY 4.0) from *Nature* / *Nature Communications*, decompose multi-panel figures into semantically independent subfigures with **YOLO11**, standardize them to **1024×1024**, and apply a two-stage VLM-based filtering pipeline (**InternVL3.5**) to retain valid schematics.
 2. **Semiotic Stratification** — Using **Qwen3-VL** as a domain-specific evaluator, assess each sample's relevance score on the three tracks (Entity Structure, Scientific Process, Scientific Law) and route images to the targeted annotation pipeline.
@@ -60,20 +60,14 @@ SciIR-82k is grounded in a semiotic triad and constructed through a **multi-stag
 
 ### 🤗 Hugging Face: https://huggingface.co/datasets/contton-sss/SciIR-82k
 
-The complete set of scripts used to build SciIR-82k is provided under [`dataset_pipeline/`](dataset_pipeline) for full transparency and reproducibility:
+The scripts used to build SciIR-82k are provided under [`code/dataset&benchmark/`](code/dataset%26benchmark) for full transparency and reproducibility:
 
 | Stage | Script | Description |
 | :--- | :--- | :--- |
-| **1. Corpus Construction** | [`01_crawl_nature.py`](dataset_pipeline/01_crawl_nature.py) | Crawl open-access articles & figures from *Nature* and parse captions/metadata. |
-| | [`02_crop_subfigures.py`](dataset_pipeline/02_crop_subfigures.py) | Decompose multi-panel figures into independent subfigures using **YOLO11** layout analysis. |
-| | [`03_pad_to_1024.py`](dataset_pipeline/03_pad_to_1024.py) | Edge-aware padding to standardize subfigures to a **1024×1024** canvas. |
-| | [`04_filter_scientific_images.py`](dataset_pipeline/04_filter_scientific_images.py) | VLM-based screening (**InternVL3.5**) to retain abstract, drawable scientific schematics and discard photos/plots/incomplete panels. |
-| | [`05_update_metadata.py`](dataset_pipeline/05_update_metadata.py) | Synchronize metadata with the surviving images after filtering. |
-| **2. Semiotic Stratification** | [`06_classify_discipline.py`](dataset_pipeline/06_classify_discipline.py) | Map articles to standardized scientific disciplines. |
-| | [`07_semiotic_stratification.py`](dataset_pipeline/07_semiotic_stratification.py) | Score relevance across the three semiotic tracks (**Qwen3-VL**) to route samples to targeted annotation. |
-| **3. Reasoning-Driven Annotation** | [`08_sci_rcot_annotation.py`](dataset_pipeline/08_sci_rcot_annotation.py) | Reverse-engineer the **Sci-RCoT** and distill the synchronized abstract prompt (Qwen3-VL + Qwen3-Max). |
-| | [`08_sci_rcot_annotation_silicon.py`](dataset_pipeline/08_sci_rcot_annotation_silicon.py) | Alternative annotation backend (SiliconFlow APIs). |
-| | [`09_fix_captions.py`](dataset_pipeline/09_fix_captions.py) | Detect and repair image–caption inconsistencies. |
+| **1. Corpus Construction** | [`crop.py`](code/dataset%26benchmark/crop.py) | Decompose multi-panel figures into independent subfigures using **YOLO11** document-layout analysis. |
+| | [`fill.py`](code/dataset%26benchmark/fill.py) | Edge-aware padding to standardize subfigures to a **1024×1024** canvas. |
+| **2. Semiotic Stratification** | [`classyfy.py`](code/dataset%26benchmark/classyfy.py) | Score each sample's relevance across the three semiotic tracks (**Qwen3-VL**) to route images to the targeted annotation pipeline. |
+| **3. Reasoning-Driven Annotation** | [`caption.py`](code/dataset%26benchmark/caption.py) | Reverse-engineer the **Sci-RCoT** (Qwen3-VL for visual grounding) and distill the synchronized abstract prompt (Qwen3-Max for semantic abstraction). |
 
 ---
 
@@ -93,25 +87,27 @@ The complete set of scripts used to build SciIR-82k is provided under [`dataset_
 
 ### Benchmark Scripts
 
-The benchmark construction and evaluation pipeline is provided under [`benchmark_pipeline/`](benchmark_pipeline):
+The benchmark construction and evaluation scripts are provided under [`code/dataset&benchmark/`](code/dataset%26benchmark):
 
 | Step | Script | Description |
 | :--- | :--- | :--- |
-| **1. Candidate Selection** | [`01_select_benchmark.py`](benchmark_pipeline/01_select_benchmark.py) | Distill 800 high-quality test instances by **term density** (>3) and select samples spanning ≥2 semiotic tracks, then organize into the four evaluation groups. |
-| **2. Checklist Generation** | [`02_generate_checklist.py`](benchmark_pipeline/02_generate_checklist.py) | Generate the term-driven, two-layer **Atomic Checklist** (Text rendering + track-customized scientific content + hallucination-defense negatives) via **Gemini-3-Pro**. |
-| **3. Automated Evaluation** | [`03_evaluate.py`](benchmark_pipeline/03_evaluate.py) | Score generated images against the checklist as a "Senior Scientific Reviewer" (**Gemini-3-Pro**), producing per-track, sample-level accuracy scores. |
+| **1. Candidate Selection** | [`selectbenchmark.py`](code/dataset%26benchmark/selectbenchmark.py) | Distill 800 high-quality test instances by **term density** (>3) and select samples spanning ≥2 semiotic tracks, then organize into the four evaluation groups. |
+| **2. Checklist Generation** | [`checklist.py`](code/dataset%26benchmark/checklist.py) | Generate the term-driven, two-layer **Atomic Checklist** (Text rendering + track-customized scientific content + hallucination-defense negatives) via **Gemini-3-Pro**. |
+| **3. Automated Evaluation** | [`evaluation.py`](code/dataset%26benchmark/evaluation.py) | Score generated images against the checklist as a "Senior Scientific Reviewer" (**Gemini-3-Pro**), producing per-track, sample-level accuracy scores. |
 
 #### Usage
 
 ```bash
+cd code/dataset&benchmark
+
 # 1) Build the benchmark candidate set & evaluation groups
-python benchmark_pipeline/01_select_benchmark.py
+python selectbenchmark.py
 
 # 2) Generate the atomic checklists for each test sample
-python benchmark_pipeline/02_generate_checklist.py
+python checklist.py
 
 # 3) Evaluate your model's generated images against the checklists
-python benchmark_pipeline/03_evaluate.py
+python evaluation.py
 ```
 
 > ⚙️ Each script has a configuration block at the top — set your API keys, input/output paths, and the folder containing your model's generated images before running.
@@ -132,6 +128,24 @@ We develop **Qwen-Image-SciIR**, a strong open-source baseline that decouples sc
 
 During inference, a **chained generation flow** ensures the reasoning module is actively engaged for every instance, maintaining a standard reasoning-to-rendering process throughout the benchmark.
 
+### Training Code
+
+The training scripts for both modules are provided under [`code/model/`](code/model):
+
+| Module | Script | Description |
+| :--- | :--- | :--- |
+| **Reasoning Planner** | [`reasoningplanner/sft_Qwen2.5-7B-Instruct.py`](code/model/reasoningplanner/sft_Qwen2.5-7B-Instruct.py) | LoRA SFT of **Qwen2.5-7B-Instruct** on (prompt, Sci-RCoT) pairs to infer the reasoning chain. |
+| **Visual Generator** | [`visualgenerator/train.py`](code/model/visualgenerator/train.py) | LoRA training module for the **Qwen-Image** diffusion transformer on (Sci-RCoT, image) pairs (built on DiffSynth). |
+| | [`visualgenerator/qwenimagelora.sh`](code/model/visualgenerator/qwenimagelora.sh) | Launch script with the LoRA configuration (rank 32, lr 1e-4) used to fine-tune the visual generator. |
+
+```bash
+# 1) Fine-tune the Reasoning Planner (Qwen2.5-7B-Instruct)
+python code/model/reasoningplanner/sft_Qwen2.5-7B-Instruct.py
+
+# 2) Fine-tune the Visual Generator (Qwen-Image LoRA)
+bash code/model/visualgenerator/qwenimagelora.sh
+```
+
 ---
 
 ## 📊 Results
@@ -149,23 +163,22 @@ During inference, a **chained generation flow** ensures the reasoning module is 
 
 ```
 SciIR/
-├── assets/                       # Figures used in this README
-├── dataset_pipeline/             # 🧪 SciIR-82k dataset construction scripts
-│   ├── 01_crawl_nature.py            # Corpus collection from Nature
-│   ├── 02_crop_subfigures.py         # YOLO11 sub-figure extraction
-│   ├── 03_pad_to_1024.py             # Standardize to 1024×1024
-│   ├── 04_filter_scientific_images.py# VLM scientific-image filtering
-│   ├── 05_update_metadata.py         # Metadata synchronization
-│   ├── 06_classify_discipline.py     # Discipline classification
-│   ├── 07_semiotic_stratification.py # Semiotic track scoring
-│   ├── 08_sci_rcot_annotation.py     # Sci-RCoT + prompt annotation
-│   ├── 08_sci_rcot_annotation_silicon.py
-│   └── 09_fix_captions.py            # Caption consistency repair
-├── benchmark_pipeline/           # 🔬 SciIR-Bench construction & evaluation scripts
-│   ├── 01_select_benchmark.py        # Candidate selection & grouping
-│   ├── 02_generate_checklist.py      # Atomic checklist generation
-│   └── 03_evaluate.py                # Automated checklist evaluation
-├── models/                       # YOLO11 document-layout weights
+├── assets/                          # Figures used in this README
+├── code/
+│   ├── dataset&benchmark/           # 🧪 SciIR-82k construction & 🔬 SciIR-Bench scripts
+│   │   ├── crop.py                      # YOLO11 sub-figure extraction
+│   │   ├── fill.py                      # Standardize to 1024×1024
+│   │   ├── classyfy.py                  # Semiotic track relevance scoring
+│   │   ├── caption.py                   # Sci-RCoT + prompt annotation
+│   │   ├── selectbenchmark.py           # Benchmark candidate selection & grouping
+│   │   ├── checklist.py                 # Atomic checklist generation
+│   │   └── evaluation.py                # Automated checklist evaluation
+│   └── model/                       # 🤖 Qwen-Image-SciIR training code
+│       ├── reasoningplanner/
+│       │   └── sft_Qwen2.5-7B-Instruct.py   # Reasoning Planner LoRA SFT
+│       └── visualgenerator/
+│           ├── train.py                     # Qwen-Image LoRA training module
+│           └── qwenimagelora.sh             # Visual Generator launch script
 └── README.md
 ```
 
