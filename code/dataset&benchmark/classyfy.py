@@ -211,7 +211,7 @@ def classify_image(filename):
     for attempt in range(max_retries):
         try:
             response = client.chat.completions.create(
-                model="internvl3.5-latest",
+                model="Qwen3-VL",
                 messages=messages,
                 temperature=0
             )
