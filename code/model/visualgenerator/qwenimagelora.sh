@@ -5,7 +5,7 @@ accelerate launch examples/qwen_image/model_training/train.py \
   --dataset_repeat 1 \
   --model_id_with_origin_paths "Qwen/Qwen-Image:transformer/diffusion_pytorch_model*.safetensors,Qwen/Qwen-Image:text_encoder/model*.safetensors,Qwen/Qwen-Image:vae/diffusion_pytorch_model.safetensors" \
   --learning_rate 1e-4 \
-  --num_epochs 5 \
+  --num_epochs 1 \
   --remove_prefix_in_ckpt "pipe.dit." \
   --output_path "./models/train/Qwen-Image_lora" \
   --lora_base_model "dit" \
