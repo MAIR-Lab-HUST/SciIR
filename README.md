@@ -8,7 +8,9 @@
   <a href="https://huggingface.co/datasets/contton-sss/SciIR-82k">
   <img src="https://img.shields.io/badge/Dataset-SciIR--82k-orange?style=for-the-badge" alt="Dataset">
   </a>
-  <a href="#-sciir-bench-benchmark"><img src="https://img.shields.io/badge/Benchmark-SciIR--Bench-green?style=for-the-badge" alt="Benchmark"></a>
+  <a href="https://sciir-deploy.vercel.app/">
+  <img src="https://img.shields.io/badge/Benchmark-SciIR--Bench-green?style=for-the-badge" alt="Benchmark">
+  </a>
   <a href="#-license"><img src="https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey?style=for-the-badge" alt="License"></a>
 </p>
 
