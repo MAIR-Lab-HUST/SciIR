@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SciIR: A Large-scale Training Dataset and Benchmark for Scientific Image Reasoning Generation</title>
+<meta name="description" content="SciIR — a semiotic-triad-grounded dataset (SciIR-82k) and benchmark (SciIR-Bench) for scientific image reasoning generation. Accepted to ECCV 2026.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#ffffff;
+    --bg-soft:#f6f7f9;
+    --bg-softer:#fafbfc;
+    --ink:#15181d;
+    --ink-soft:#4a515b;
+    --ink-faint:#838b96;
+    --line:#e7eaee;
+    --brand:#1f5fff;
+    --brand-2:#7b3ff2;
+    --brand-3:#00b894;
+    --accent-icon:#2563eb;
+    --accent-index:#7c3aed;
+    --accent-symbol:#0d9488;
+    --radius:16px;
+    --shadow:0 1px 2px rgba(20,24,30,.04), 0 8px 30px rgba(20,24,30,.06);
+    --maxw:1080px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;
+    font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);
+    background:var(--bg);
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  a{color:var(--brand);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+
+  /* ---------- Top nav ---------- */
+  nav.top{
+    position:sticky;top:0;z-index:50;
+    background:rgba(255,255,255,.82);
+    backdrop-filter:saturate(180%) blur(14px);
+    border-bottom:1px solid var(--line);
+  }
+  nav.top .wrap{display:flex;align-items:center;justify-content:space-between;height:60px}
+  nav.top .brand{font-weight:800;letter-spacing:-.02em;font-size:18px;display:flex;align-items:center;gap:9px}
+  nav.top .brand .dot{width:11px;height:11px;border-radius:50%;background:linear-gradient(135deg,var(--brand),var(--brand-2))}
+  nav.top .links{display:flex;gap:26px}
+  nav.top .links a{color:var(--ink-soft);font-size:14px;font-weight:500}
+  nav.top .links a:hover{color:var(--ink);text-decoration:none}
+  @media(max-width:760px){nav.top .links{display:none}}
+
+  /* ---------- Hero ---------- */
+  header.hero{
+    position:relative;
+    padding:72px 0 28px;
+    text-align:center;
+    overflow:hidden;
+    background:
+      radial-gradient(900px 380px at 50% -120px, rgba(31,95,255,.10), transparent 70%),
+      radial-gradient(700px 320px at 85% 0, rgba(123,63,242,.08), transparent 70%),
+      radial-gradient(700px 320px at 12% 40px, rgba(0,184,148,.07), transparent 70%);
+  }
+  .badge-venue{
+    display:inline-flex;align-items:center;gap:8px;
+    font-weight:600;font-size:13px;letter-spacing:.02em;
+    color:var(--brand);
+    background:#eef3ff;border:1px solid #d9e4ff;
+    padding:6px 14px;border-radius:999px;margin-bottom:22px;
+  }
+  .badge-venue .spark{font-size:14px}
+  h1.title{
+    font-family:'Newsreader',Georgia,serif;
+    font-weight:600;
+    font-size:clamp(30px,4.6vw,50px);
+    line-height:1.12;
+    letter-spacing:-.015em;
+    margin:0 auto 6px;
+    max-width:920px;
+  }
+  h1.title .grad{
+    background:linear-gradient(120deg,var(--brand),var(--brand-2) 55%,var(--brand-3));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .subtitle{
+    font-size:clamp(15px,1.9vw,19px);
+    color:var(--ink-soft);
+    max-width:720px;margin:14px auto 0;font-weight:400;
+  }
+
+  /* authors */
+  .authors{margin:30px auto 4px;max-width:840px;font-size:16px;color:var(--ink);font-weight:500}
+  .authors a{color:var(--ink)}
+  .authors .sup{color:var(--brand);font-weight:600;font-size:.78em;vertical-align:super}
+  .affil{margin:14px auto 0;max-width:820px;font-size:13.5px;color:var(--ink-faint);line-height:1.7}
+  .affil .num{color:var(--ink-soft);font-weight:600}
+  .notes{margin-top:8px;font-size:13px;color:var(--ink-faint)}
+
+  /* buttons */
+  .cta{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin:30px auto 6px}
+  .btn{
+    display:inline-flex;align-items:center;gap:9px;
+    padding:11px 20px;border-radius:999px;
+    font-weight:600;font-size:14.5px;
+    border:1px solid transparent;transition:.18s ease;
+    text-decoration:none;
+  }
+  .btn svg{width:18px;height:18px;flex:none}
+  .btn:hover{text-decoration:none;transform:translateY(-2px)}
+  .btn-dark{background:var(--ink);color:#fff;box-shadow:var(--shadow)}
+  .btn-dark:hover{background:#000}
+  .btn-data{background:linear-gradient(135deg,#ff9a3c,#ff6f3c);color:#fff;box-shadow:0 8px 22px rgba(255,111,60,.28)}
+  .btn-bench{background:linear-gradient(135deg,var(--brand-3),#00997b);color:#fff;box-shadow:0 8px 22px rgba(0,184,148,.26)}
+  .btn-ghost{background:#fff;color:var(--ink);border-color:var(--line);box-shadow:var(--shadow)}
+  .btn-ghost:hover{border-color:#cfd5dd}
+
+  /* ---------- Sections ---------- */
+  section{padding:62px 0}
+  section.alt{background:var(--bg-soft)}
+  .eyebrow{
+    display:flex;align-items:center;gap:12px;justify-content:center;
+    color:var(--ink-faint);font-weight:600;font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;
+    margin-bottom:14px;
+  }
+  .eyebrow::before,.eyebrow::after{content:"";height:1px;width:34px;background:var(--line)}
+  h2.sec{
+    font-family:'Newsreader',Georgia,serif;
+    font-weight:600;text-align:center;
+    font-size:clamp(26px,3.4vw,38px);letter-spacing:-.01em;
+    margin:0 0 8px;
+  }
+  .sec-lead{text-align:center;color:var(--ink-soft);max-width:720px;margin:0 auto 38px;font-size:16px}
+
+  figure{margin:0}
+  .figrow{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:var(--maxw);margin:0 auto}
+  @media(max-width:760px){.figrow{grid-template-columns:1fr}}
+  .figcard{
+    background:#fff;border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:14px;overflow:hidden;
+  }
+  .figcard img{width:100%;display:block;border-radius:8px}
+  figcaption{
+    font-size:13.5px;color:var(--ink-soft);margin-top:12px;padding:0 6px 4px;line-height:1.6;
+  }
+  figcaption b{color:var(--ink)}
+
+  /* abstract */
+  .abstract-box{
+    max-width:860px;margin:0 auto;font-size:16.5px;color:var(--ink-soft);
+    background:#fff;border:1px solid var(--line);border-left:4px solid var(--brand);
+    border-radius:14px;padding:26px 30px;box-shadow:var(--shadow);
+  }
+  .abstract-box b{color:var(--ink)}
+
+  /* semiotic triad cards */
+  .triad{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;max-width:980px;margin:0 auto 0}
+  @media(max-width:780px){.triad{grid-template-columns:1fr}}
+  .tcard{
+    background:#fff;border:1px solid var(--line);border-radius:var(--radius);
+    padding:24px 22px;box-shadow:var(--shadow);position:relative;overflow:hidden;
+  }
+  .tcard::before{content:"";position:absolute;inset:0 0 auto 0;height:4px}
+  .tcard.icon::before{background:var(--accent-icon)}
+  .tcard.index::before{background:var(--accent-index)}
+  .tcard.symbol::before{background:var(--accent-symbol)}
+  .tcard .tag{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+  .tcard.icon .tag{color:var(--accent-icon)}
+  .tcard.index .tag{color:var(--accent-index)}
+  .tcard.symbol .tag{color:var(--accent-symbol)}
+  .tcard h3{margin:8px 0 8px;font-size:19px;letter-spacing:-.01em}
+  .tcard p{margin:0;font-size:14.5px;color:var(--ink-soft)}
+  .tcard .peirce{margin-top:14px;font-size:12.5px;color:var(--ink-faint);font-style:italic}
+
+  /* highlights */
+  .hl-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;max-width:980px;margin:0 auto}
+  @media(max-width:760px){.hl-grid{grid-template-columns:1fr}}
+  .hl{
+    display:flex;gap:16px;background:#fff;border:1px solid var(--line);
+    border-radius:var(--radius);padding:22px 22px;box-shadow:var(--shadow);
+  }
+  .hl .ic{
+    flex:none;width:44px;height:44px;border-radius:12px;display:grid;place-items:center;
+    font-size:22px;background:linear-gradient(135deg,#eef3ff,#f3edff);
+  }
+  .hl h3{margin:2px 0 6px;font-size:17px;letter-spacing:-.01em}
+  .hl p{margin:0;font-size:14.5px;color:var(--ink-soft)}
+
+  /* stats strip */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;max-width:920px;margin:42px auto 0}
+  @media(max-width:760px){.stats{grid-template-columns:repeat(2,1fr)}}
+  .stat{text-align:center;background:#fff;border:1px solid var(--line);border-radius:14px;padding:22px 12px;box-shadow:var(--shadow)}
+  .stat .num{font-family:'Newsreader',serif;font-weight:600;font-size:34px;line-height:1;
+    background:linear-gradient(120deg,var(--brand),var(--brand-2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .stat .lbl{margin-top:8px;font-size:13px;color:var(--ink-faint);font-weight:500}
+
+  /* pipeline steps */
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;max-width:1000px;margin:34px auto 0}
+  @media(max-width:820px){.steps{grid-template-columns:1fr}}
+  .step{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:22px;box-shadow:var(--shadow)}
+  .step .n{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--brand);letter-spacing:.04em}
+  .step h3{margin:8px 0 8px;font-size:17px;letter-spacing:-.01em}
+  .step p{margin:0;font-size:14px;color:var(--ink-soft)}
+  .step .models{margin-top:12px;display:flex;flex-wrap:wrap;gap:6px}
+  .chip{font-size:11.5px;font-weight:600;color:var(--ink-soft);background:var(--bg-soft);border:1px solid var(--line);padding:3px 9px;border-radius:999px}
+
+  /* key results callout */
+  .result-callout{
+    display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:14px;
+    max-width:780px;margin:0 auto 34px;background:#fff;border:1px solid var(--line);
+    border-radius:var(--radius);padding:22px 26px;box-shadow:var(--shadow);text-align:center;
+  }
+  .result-callout .big{font-family:'Newsreader',serif;font-weight:600;font-size:30px}
+  .result-callout .arrow{color:var(--ink-faint);font-size:24px}
+  .result-callout .up{color:var(--brand-3);font-weight:700}
+  .result-callout .lbl{font-size:14px;color:var(--ink-soft)}
+
+  /* citation */
+  .cite-box{
+    max-width:880px;margin:0 auto;position:relative;
+    background:#0f1320;border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;
+  }
+  .cite-box .bar{display:flex;align-items:center;justify-content:space-between;
+    padding:12px 16px;border-bottom:1px solid #232838;color:#aab2c5;font-size:13px}
+  .cite-box pre{
+    margin:0;padding:20px;overflow-x:auto;color:#d8def0;
+    font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.7;
+  }
+  .cite-box .copy{
+    cursor:pointer;background:#222a3d;color:#cdd5e6;border:1px solid #313a52;
+    padding:5px 12px;border-radius:8px;font-size:12.5px;font-weight:600;transition:.15s;
+  }
+  .cite-box .copy:hover{background:#2c3550}
+
+  footer{padding:46px 0 60px;border-top:1px solid var(--line);text-align:center;color:var(--ink-faint);font-size:14px}
+  footer .flinks{display:flex;gap:20px;justify-content:center;margin-bottom:14px;flex-wrap:wrap}
+  footer a{color:var(--ink-soft)}
+
+  .mt-img{margin-top:8px}
+</style>
+</head>
+<body>
+
+<!-- ============ NAV ============ -->
+<nav class="top">
+  <div class="wrap">
+    <div class="brand"><span class="dot"></span> SciIR</div>
+    <div class="links">
+      <a href="#abstract">Abstract</a>
+      <a href="#dataset">Dataset</a>
+      <a href="#benchmark">Benchmark</a>
+      <a href="#model">Model</a>
+      <a href="#results">Results</a>
+      <a href="#citation">Citation</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="wrap">
+    <div class="badge-venue"><span class="spark">🎉</span> Accepted to ECCV 2026</div>
+    <h1 class="title">SciIR: A Large-scale Training Dataset and Benchmark for <span class="grad">Scientific Image Reasoning</span> Generation</h1>
+    <p class="subtitle">Grounding scientific image generation in <b>Peirce's Semiotic Triad</b>.</p>
+
+    <div class="authors">
+      Zhiyuan Ma<span class="sup">1,*</span>,
+      Zhengfeng Shi<span class="sup">1,*</span>,
+      Yuning An<span class="sup">2</span>,
+      Peize Li<span class="sup">3</span>,
+      Jiabao Wei<span class="sup">4</span>,
+      Ruijie Li<span class="sup">5</span>,
+      Junhao Xiao<span class="sup">6</span>,
+      Jianjun Li<span class="sup">1,†</span>,
+      Bowen Zhou<span class="sup">7</span>
+    </div>
+    <div class="affil">
+      <span class="num">1</span> Huazhong University of Science and Technology &nbsp;·&nbsp;
+      <span class="num">2</span> Harbin Engineering University &nbsp;·&nbsp;
+      <span class="num">3</span> King's College London &nbsp;·&nbsp;
+      <span class="num">4</span> Beijing Institute of Technology<br>
+      <span class="num">5</span> Dept. of Informatics, King's College London &nbsp;·&nbsp;
+      <span class="num">6</span> Central China Normal University &nbsp;·&nbsp;
+      <span class="num">7</span> Tsinghua University
+    </div>
+    <div class="notes">* Equal contribution &nbsp;&nbsp;†&nbsp;Corresponding author</div>
+
+    <div class="cta">
+      <a class="btn btn-dark" href="https://github.com/MAIR-Lab-HUST/SciIR" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2a11.4 11.4 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
+        Code
+      </a>
+      <a class="btn btn-data" href="https://huggingface.co/datasets/contton-sss/SciIR-82k" target="_blank" rel="noopener">
+        <span style="font-size:18px">🤗</span> SciIR-82k Dataset
+      </a>
+      <a class="btn btn-bench" href="https://sciir-deploy.vercel.app/" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="11" width="3" height="7"/><rect x="12" y="7" width="3" height="11"/><rect x="17" y="13" width="3" height="5"/></svg>
+        SciIR-Bench
+      </a>
+    </div>
+  </div>
+</header>
+
+<!-- ============ TEASER / OVERVIEW ============ -->
+<section style="padding-top:30px">
+  <div class="wrap">
+    <figure class="figcard">
+      <img src="assets/overview.png" alt="Overview of SciIR">
+      <figcaption><b>Figure 1. Overview of SciIR.</b> (a) Keyword word cloud and track distribution. (b) Example figures across domains. (c) SciIR-Bench results, comparing <i>Intrinsic Reasoning</i> vs. <i>Instruction Following</i>.</figcaption>
+    </figure>
+
+    <div class="stats">
+      <div class="stat"><div class="num">82K</div><div class="lbl">Image–text pairs</div></div>
+      <div class="stat"><div class="num">800</div><div class="lbl">Benchmark instances</div></div>
+      <div class="stat"><div class="num">3</div><div class="lbl">Semiotic reasoning tracks</div></div>
+      <div class="stat"><div class="num">35→43%</div><div class="lbl">SciIR-Bench gain</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ABSTRACT ============ -->
+<section id="abstract" class="alt">
+  <div class="wrap">
+    <div class="eyebrow">Abstract</div>
+    <h2 class="sec">What is SciIR?</h2>
+    <div class="abstract-box">
+      Inspired by <b>Peirce's Semiotic Triad</b>, <b>SciIR</b> formalizes scientific reasoning into three dimensions — <b>Entity Structure</b> (<i>Icon</i>), <b>Scientific Process</b> (<i>Index</i>), and <b>Scientific Law</b> (<i>Symbol</i>) — backed by the <b>SciIR-82k</b> dataset (80k+ Sci-RCoT pairs) and the <b>SciIR-Bench</b> Atomic Checklist. Fine-tuning yields <b>Qwen-Image-SciIR</b>, lifting the score from <b>35% → 43%</b>.
+    </div>
+  </div>
+</section>
+
+<!-- ============ SEMIOTIC TRIAD ============ -->
+<section>
+  <div class="wrap">
+    <div class="eyebrow">A Principled Taxonomy</div>
+    <h2 class="sec">Peirce's Semiotic Triad</h2>
+    <div class="triad">
+      <div class="tcard icon">
+        <div class="tag">Icon</div>
+        <h3>Entity Structure</h3>
+        <p>Geometric hierarchy and spatial alignment of scientific entities.</p>
+        <div class="peirce">structure &amp; topology</div>
+      </div>
+      <div class="tcard index">
+        <div class="tag">Index</div>
+        <h3>Scientific Process</h3>
+        <p>Causal and temporal chains — state transitions and workflows.</p>
+        <div class="peirce">process &amp; causality</div>
+      </div>
+      <div class="tcard symbol">
+        <div class="tag">Symbol</div>
+        <h3>Scientific Law</h3>
+        <p>Abstract laws — energy conservation, molecular valence.</p>
+        <div class="peirce">law &amp; principle</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ HIGHLIGHTS ============ -->
+<section class="alt">
+  <div class="wrap">
+    <div class="eyebrow">Contributions</div>
+    <h2 class="sec">Highlights</h2>
+    <div class="hl-grid">
+      <div class="hl">
+        <div class="ic">🧠</div>
+        <div><h3>A Principled Taxonomy</h3><p>Scientific correctness decomposed into Icon, Index, and Symbol dimensions.</p></div>
+      </div>
+      <div class="hl">
+        <div class="ic">📚</div>
+        <div><h3>SciIR-82k Dataset</h3><p>&gt;80,000 image–text pairs with Sci-RCoT reasoning annotations.</p></div>
+      </div>
+      <div class="hl">
+        <div class="ic">🔬</div>
+        <div><h3>SciIR-Bench Benchmark</h3><p>The first benchmark to score multidimensional correctness via a verifiable Atomic Checklist.</p></div>
+      </div>
+      <div class="hl">
+        <div class="ic">🚀</div>
+        <div><h3>Qwen-Image-SciIR</h3><p>Open-source baseline boosting SciIR-Bench from 35% → 43%.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DATASET / PIPELINE ============ -->
+<section id="dataset">
+  <div class="wrap">
+    <div class="eyebrow">SciIR-82k</div>
+    <h2 class="sec">The Construction Pipeline</h2>
+    <p class="sec-lead">A multi-stage pipeline that reverse-engineers reasoning from published figures.</p>
+
+    <figure class="figcard">
+      <img src="assets/dataset.png" alt="SciIR-82k construction pipeline">
+      <figcaption><b>Figure 2. The SciIR-82k pipeline.</b> Corpus construction (YOLO11, InternVL3.5) → semiotic stratification → reasoning-driven Sci-RCoT annotation (Qwen3).</figcaption>
+    </figure>
+
+    <div class="steps">
+      <div class="step">
+        <div class="n">STAGE 01</div>
+        <h3>Corpus Construction</h3>
+        <p>Decompose multi-panel figures into subfigures, standardize to 1024×1024, and filter via VLM.</p>
+        <div class="models"><span class="chip">YOLO11</span><span class="chip">InternVL3.5</span></div>
+      </div>
+      <div class="step">
+        <div class="n">STAGE 02</div>
+        <h3>Semiotic Stratification</h3>
+        <p>Score each sample's relevance to the three tracks and route to targeted annotation.</p>
+        <div class="models"><span class="chip">Qwen3-VL</span></div>
+      </div>
+      <div class="step">
+        <div class="n">STAGE 03</div>
+        <h3>Reasoning-Driven Annotation</h3>
+        <p>Reverse-engineer the Sci-RCoT from ground-truth images, then distill a concise prompt.</p>
+        <div class="models"><span class="chip">Qwen3-VL</span><span class="chip">Qwen3-Max</span></div>
+      </div>
+    </div>
+
+    <h3 style="text-align:center;font-family:'Newsreader',serif;font-weight:600;font-size:22px;margin:48px 0 22px">Dataset Statistics</h3>
+    <figure class="figcard">
+      <img src="assets/subject.png" alt="Distribution of figures by discipline">
+      <figcaption><b>(a) Distribution by discipline.</b> SciIR-82k spans a broad range of scientific fields.</figcaption>
+    </figure>
+    <figure class="figcard" style="margin-top:22px">
+      <img src="assets/terms.png" alt="Term count distribution across tracks">
+      <figcaption><b>(b) Term-count distribution</b> across the three semiotic reasoning tracks.</figcaption>
+    </figure>
+
+    <div style="text-align:center;margin-top:38px">
+      <a class="btn btn-data" href="https://huggingface.co/datasets/contton-sss/SciIR-82k" target="_blank" rel="noopener"><span style="font-size:18px">🤗</span> Get SciIR-82k on Hugging Face</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ BENCHMARK ============ -->
+<section id="benchmark" class="alt">
+  <div class="wrap">
+    <div class="eyebrow">SciIR-Bench</div>
+    <h2 class="sec">A Fine-grained, Verifiable Benchmark</h2>
+    <p class="sec-lead">Measuring whether models faithfully instantiate structured scientific content.</p>
+
+    <figure class="figcard">
+      <img src="assets/benchmark.png" alt="A SciIR-Bench evaluation instance">
+      <figcaption><b>Figure 3. An evaluation instance from SciIR-Bench.</b> A prompt covering all four tracks guides various models to generate images. Each output is scrutinized by Gemini-3-Pro using a dimension-specific atomic checklist.</figcaption>
+    </figure>
+
+    <div class="steps" style="grid-template-columns:repeat(3,1fr)">
+      <div class="step">
+        <div class="n">DESIGN 01</div>
+        <h3>Four-fold Track Grouping</h3>
+        <p>N=200 per group: one holistic group plus pairwise intersections of the three tracks.</p>
+      </div>
+      <div class="step">
+        <div class="n">DESIGN 02</div>
+        <h3>IF vs. IR Stratification</h3>
+        <p>Instruction Following (dense prompt) vs. Intrinsic Reasoning (abstract prompt).</p>
+      </div>
+      <div class="step">
+        <div class="n">DESIGN 03</div>
+        <h3>Atomic Checklist</h3>
+        <p>Term-driven extraction → atomic questioning → refereeing, with a strict veto on hallucinations.</p>
+      </div>
+    </div>
+
+    <div style="text-align:center;margin-top:34px">
+      <a class="btn btn-bench" href="https://sciir-deploy.vercel.app/" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="11" width="3" height="7"/><rect x="12" y="7" width="3" height="11"/><rect x="17" y="13" width="3" height="5"/></svg>
+        Explore the SciIR-Bench Leaderboard
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ MODEL ============ -->
+<section id="model">
+  <div class="wrap">
+    <div class="eyebrow">Our Model</div>
+    <h2 class="sec">Qwen-Image-SciIR</h2>
+    <p class="sec-lead">Decoupling scientific reasoning from visual synthesis via two LoRA modules.</p>
+
+    <figure class="figcard">
+      <img src="assets/model.png" alt="Qwen-Image-SciIR architecture">
+      <figcaption><b>Figure 4. Qwen-Image-SciIR architecture.</b> A <i>Reasoning Planner</i> (LoRA-tuned Qwen2.5-7B-Instruct) infers a comprehensive Sci-RCoT from the input prompt, which is then consumed by the <i>Visual Generator</i> (LoRA-tuned Qwen-Image-2512) to synthesize the final image.</figcaption>
+    </figure>
+
+    <div class="hl-grid" style="margin-top:34px">
+      <div class="hl">
+        <div class="ic">🧩</div>
+        <div><h3>Reasoning Planner</h3><p>Qwen2.5-7B-Instruct (LoRA r=64, α=16) infers the Sci-RCoT from the prompt.</p></div>
+      </div>
+      <div class="hl">
+        <div class="ic">🎨</div>
+        <div><h3>Visual Generator</h3><p>Qwen-Image-2512 (LoRA r=32) renders the image from the Sci-RCoT at 1024×1024.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ RESULTS ============ -->
+<section id="results" class="alt">
+  <div class="wrap">
+    <div class="eyebrow">Experiments</div>
+    <h2 class="sec">Results on SciIR-Bench</h2>
+    <p class="sec-lead">Accuracy Score (%) for Intrinsic Reasoning (IR), Instruction Following (IF), and overall performance across four tracks.</p>
+
+    <div class="result-callout">
+      <div><div class="lbl">Qwen-Image-2512</div><div class="big">35%</div></div>
+      <div class="arrow">→</div>
+      <div><div class="lbl">Qwen-Image-SciIR</div><div class="big up">43%</div></div>
+      <div style="flex-basis:100%;height:0"></div>
+      <div class="lbl">Largest gains on <b style="color:var(--accent-index)">Scientific Process (+16%)</b> and <b style="color:var(--accent-icon)">Entity Structure (+9%)</b>.</div>
+    </div>
+
+    <figure class="figcard">
+      <img src="assets/evaluation.png" alt="SciIR-Bench evaluation results table">
+      <figcaption><b>Table 1. Evaluation on SciIR-Bench.</b> Accuracy Score (%) across four tracks — Scientific Law (SL), Entity Structure (ES), Scientific Process (SP), and Text — reported for IR, IF, and their average.</figcaption>
+    </figure>
+
+    <figure class="figcard mt-img" style="margin-top:22px">
+      <img src="assets/comparison.png" alt="Qualitative comparison of generated results">
+      <figcaption><b>Figure 5. Qualitative comparison.</b> Qwen-Image-SciIR shifts from a generic artistic style toward precise scientific illustration, minimizing structural omissions, broken causal links, and domain-prior violations produced by the baseline.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============ CITATION ============ -->
+<section id="citation">
+  <div class="wrap">
+    <div class="eyebrow">Reference</div>
+    <h2 class="sec">Citation</h2>
+    <p class="sec-lead">If you find SciIR useful for your research, please consider citing our work.</p>
+    <div class="cite-box">
+      <div class="bar"><span>BibTeX</span><button class="copy" onclick="copyCite()">Copy</button></div>
+<pre id="bibtex">@inproceedings{sciir2026,
+  title     = {SciIR: A Large-scale Training Dataset and Benchmark
+               for Scientific Image Reasoning Generation},
+  author    = {Ma, Zhiyuan and Shi, Zhengfeng and An, Yuning and
+               Li, Peize and Wei, Jiabao and Li, Ruijie and
+               Xiao, Junhao and Li, Jianjun and Zhou, Bowen},
+  booktitle = {Proceedings of the European Conference on Computer Vision (ECCV)},
+  year      = {2026}
+}</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    <div class="flinks">
+      <a href="https://github.com/MAIR-Lab-HUST/SciIR" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://huggingface.co/datasets/contton-sss/SciIR-82k" target="_blank" rel="noopener">Hugging Face Dataset</a>
+      <a href="https://sciir-deploy.vercel.app/" target="_blank" rel="noopener">SciIR-Bench</a>
+    </div>
+    <div>The SciIR-82k dataset is sourced from open-access articles licensed under <b>CC BY 4.0</b>.</div>
+    <div style="margin-top:8px">© 2026 SciIR · MAIR Lab, Huazhong University of Science and Technology</div>
+  </div>
+</footer>
+
+<script>
+function copyCite(){
+  const t = document.getElementById('bibtex').innerText;
+  navigator.clipboard.writeText(t).then(()=>{
+    const b = document.querySelector('.cite-box .copy');
+    const o = b.innerText; b.innerText = 'Copied ✓';
+    setTimeout(()=>b.innerText=o, 1600);
+  });
+}
+</script>
+</body>
+</html>
