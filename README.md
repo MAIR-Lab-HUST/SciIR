@@ -8,7 +8,9 @@
   <a href="https://huggingface.co/datasets/contton-sss/SciIR-82k">
   <img src="https://img.shields.io/badge/Dataset-SciIR--82k-orange?style=for-the-badge" alt="Dataset">
   </a>
-  <a href="#-sciir-bench-benchmark"><img src="https://img.shields.io/badge/Benchmark-SciIR--Bench-green?style=for-the-badge" alt="Benchmark"></a>
+  <a href="https://sciir-deploy.vercel.app/">
+  <img src="https://img.shields.io/badge/Benchmark-SciIR--Bench-green?style=for-the-badge" alt="Benchmark">
+  </a>
   <a href="#-license"><img src="https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey?style=for-the-badge" alt="License"></a>
 </p>
 
@@ -164,6 +166,17 @@ bash code/model/visualgenerator/qwenimagelora.sh
 ```
 SciIR/
 ├── assets/                          # Figures used in this README
+├── benchmark_sample/                # Sample data from SciIR-Bench
+│   ├── instruction_following/        # IF samples with dense Sci-RCoT prompts
+│   │   ├── All_Three/               # caption.json, checklist.json, metadata.json
+│   │   ├── EntityStructure_ScientificLaw/
+│   │   ├── EntityStructure_ScientificProcess/
+│   │   └── ScientificLaw_ScientificProcess/
+│   └── intrinsic_reasoning/          # IR samples with abstract prompts
+│       ├── All_Three/               # caption.json, checklist.json, metadata.json
+│       ├── EntityStructure_ScientificLaw/
+│       ├── EntityStructure_ScientificProcess/
+│       └── ScientificLaw_ScientificProcess/
 ├── code/
 │   ├── dataset&benchmark/           # 🧪 SciIR-82k construction & 🔬 SciIR-Bench scripts
 │   │   ├── crop.py                      # YOLO11 sub-figure extraction
