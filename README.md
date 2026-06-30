@@ -60,7 +60,12 @@ SciIR-82k is grounded in a semiotic triad and constructed through a **multi-stag
 
 ## 📦 Dataset
 
-### 🤗 Hugging Face: https://huggingface.co/datasets/contton-sss/SciIR-82k
+### 🤗 Hugging Face: https://huggingface.co/datasets/MAIR-Lab-HUST/SciIR-82k
+
+<div align="center">
+  <img src="assets/dataset.png" width="92%">
+  <p align="left"><b>Figure 2: Overview of the SciIR-82k pipeline grounded in Peirce’s Semiotic Triad.</b> Corpus construction (YOLO11, InternVL3.5) → semiotic stratification → reasoning-driven Sci-RCoT annotation (Qwen3).</p>
+</div>
 
 The scripts used to build SciIR-82k are provided under [`code/dataset&benchmark/`](code/dataset%26benchmark) for full transparency and reproducibility:
 
@@ -74,6 +79,8 @@ The scripts used to build SciIR-82k are provided under [`code/dataset&benchmark/
 ---
 
 ## 🔬 SciIR-Bench (Benchmark)
+
+### 🤗 https://sciir-deploy.vercel.app/
 
 <div align="center">
   <img src="assets/benchmark.png" width="92%">
