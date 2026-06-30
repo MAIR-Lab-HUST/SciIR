@@ -11,6 +11,7 @@
   <a href="https://sciir-deploy.vercel.app/">
   <img src="https://img.shields.io/badge/Benchmark-SciIR--Bench-green?style=for-the-badge" alt="Benchmark">
   </a>
+  <a href="https://sci-ir.vercel.app/sciir.html"><img src="https://img.shields.io/badge/SciIR-red?style=for-the-badge" alt="Homepage"></a>
   <a href="#-license"><img src="https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey?style=for-the-badge" alt="License"></a>
 </p>
 
