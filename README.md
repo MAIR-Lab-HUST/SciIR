@@ -3,7 +3,7 @@
 # SciIR: A Large-scale Training Dataset and Benchmark for Scientific Image Reasoning Generation
 
 <p align="center">
-  <a href="#"><img src="https://img.shields.io/badge/ECCV-2026-blue?style=for-the-badge" alt="ECCV 2026"></a>
+  <a href="https://arxiv.org/abs/2606.30124"><img src="https://img.shields.io/badge/ECCV-2026-blue?style=for-the-badge" alt="ECCV 2026"></a>
   <a href="https://github.com/cotton-sss/SciIR"><img src="https://img.shields.io/badge/Code-GitHub-black?style=for-the-badge&logo=github" alt="Code"></a>
   <a href="https://huggingface.co/datasets/contton-sss/SciIR-82k">
   <img src="https://img.shields.io/badge/Dataset-SciIR--82k-orange?style=for-the-badge" alt="Dataset">
@@ -209,11 +209,14 @@ SciIR/
 If you find SciIR useful for your research, please consider citing our work:
 
 ```bibtex
-@inproceedings{sciir2026,
-  title     = {SciIR: A Large-scale Training Dataset and Benchmark for Scientific Image Reasoning Generation},
-  author    = {Anonymous},
-  booktitle = {Proceedings of the European Conference on Computer Vision (ECCV)},
-  year      = {2026}
+@misc{ma2026sciirlargescaletrainingdataset,
+      title={SciIR: A Large-scale Training Dataset and Benchmark for Scientific Image Reasoning Generation}, 
+      author={Zhiyuan Ma and Zhengfeng Shi and Yuning An and Peize Li and Jiabao Wei and Ruijie Li and Junhao Xiao and Jianjun Li and Bowen Zhou},
+      year={2026},
+      eprint={2606.30124},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2606.30124}, 
 }
 ```
 
