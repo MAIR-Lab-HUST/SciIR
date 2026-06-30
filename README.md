@@ -84,7 +84,7 @@ The scripts used to build SciIR-82k are provided under [`code/dataset&benchmark/
 
 <div align="center">
   <img src="assets/benchmark.png" width="92%">
-  <p align="left"><b>Figure 2: An evaluation instance from SciIR-Bench.</b> A prompt covering all four tracks guides various models in generating images. The output is then scrutinized by Gemini-3-Pro using a dimension-specific atomic checklist.</p>
+  <p align="left"><b>Figure 3: An evaluation instance from SciIR-Bench.</b> A prompt covering all four tracks guides various models in generating images. The output is then scrutinized by Gemini-3-Pro using a dimension-specific atomic checklist.</p>
 </div>
 
 **SciIR-Bench** moves beyond traditional holistic image-quality metrics and instead measures whether models can faithfully instantiate structured scientific content — correctly rendering labeled entities, preserving spatial and topological relations, and accurately depicting multi-stage processes — without introducing unsupported elements or logical contradictions.
@@ -127,7 +127,7 @@ python evaluation.py
 
 <div align="center">
   <img src="assets/model.png" width="90%">
-  <p align="left"><b>Figure 3: Qwen-Image-SciIR model architecture.</b> A <i>Reasoning Planner</i> (LoRA-tuned Qwen2.5-7B-Instruct) first infers a comprehensive Sci-RCoT from the input prompt, which is then consumed by the <i>Visual Generator</i> (LoRA-tuned Qwen-Image-2512) to synthesize the final image.</p>
+  <p align="left"><b>Figure 4: Qwen-Image-SciIR model architecture.</b> A <i>Reasoning Planner</i> (LoRA-tuned Qwen2.5-7B-Instruct) first infers a comprehensive Sci-RCoT from the input prompt, which is then consumed by the <i>Visual Generator</i> (LoRA-tuned Qwen-Image-2512) to synthesize the final image.</p>
 </div>
 
 We develop **Qwen-Image-SciIR**, a strong open-source baseline that decouples scientific reasoning from visual synthesis via two fine-tuned modules:
